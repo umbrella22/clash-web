@@ -1,0 +1,35 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/clash-web-service",
+    "crates/clash-web-core",
+    "crates/clash-web-utils",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96.0"
+license = "MIT"
+
+[workspace.dependencies]
+tokio = { version = "1.52.3", features = ["full"] }
+axum = { version = "0.8.9", features = ["ws"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+serde_yaml = "0.9.34"
+anyhow = "1.0.102"
+thiserror = "2.0.18"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+reqwest = { version = "0.13.4", features = ["json", "rustls-no-provider", "stream"], default-features = false }
+rustls = { version = "0.23.40", features = ["ring"], default-features = false }
+tower = "0.5.3"
+tower-http = { version = "0.6.11", features = ["cors", "fs", "trace"] }
+clap = { version = "4.6.1", features = ["derive"] }
+uuid = { version = "1.23.3", features = ["v4"] }
+chrono = { version = "0.4.45", features = ["serde"] }
+futures-util = "0.3.32"
+tokio-stream = "0.1.18"
+url = "2.5.8"
+base64 = "0.22.1"

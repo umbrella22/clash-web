@@ -1,0 +1,16 @@
+[Unit]
+Description=Clash Web Management Service
+After=network.target
+Wants=mihomo.service
+
+[Service]
+Type=simple
+User=clash-web
+Group=clash-web
+ExecStart=/usr/bin/clash-web-service --config /etc/clash-web/service.yaml
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

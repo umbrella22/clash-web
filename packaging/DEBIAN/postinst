@@ -1,0 +1,93 @@
+#!/bin/bash
+set -e
+
+CLASH_WEB_USER="clash-web"
+CLASH_WEB_GROUP="clash-web"
+CLASH_WEB_DIR="/etc/clash-web"
+CLASH_WEB_PROFILES="${CLASH_WEB_DIR}/profiles"
+CLASH_WEB_BIN="${CLASH_WEB_DIR}/bin"
+
+if ! id "$CLASH_WEB_USER" &>/dev/null; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin "$CLASH_WEB_USER"
+fi
+
+mkdir -p "$CLASH_WEB_PROFILES" "$CLASH_WEB_BIN"
+chown -R "$CLASH_WEB_USER:$CLASH_WEB_GROUP" "$CLASH_WEB_DIR"
+chmod 750 "$CLASH_WEB_DIR"
+
+if [ ! -f "$CLASH_WEB_DIR/service.yaml" ]; then
+    cat > "$CLASH_WEB_DIR/service.yaml" <<'EOF'
+server:
+  host: "0.0.0.0"
+  port: 9097
+
+mihomo:
+  api_url: "http://127.0.0.1:9090"
+  secret: ""
+  config_dir: "/etc/clash-web"
+
+auth:
+  token: ""
+EOF
+    chown "$CLASH_WEB_USER:$CLASH_WEB_GROUP" "$CLASH_WEB_DIR/service.yaml"
+    chmod 640 "$CLASH_WEB_DIR/service.yaml"
+fi
+
+if [ ! -f "$CLASH_WEB_DIR/config.yaml" ]; then
+    cat > "$CLASH_WEB_DIR/config.yaml" <<'DEFAULTCONFIG'
+mixed-port: 7890
+allow-lan: false
+bind-address: "*"
+mode: rule
+log-level: info
+ipv6: false
+external-controller: 127.0.0.1:9090
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+DEFAULTCONFIG
+    chown "$CLASH_WEB_USER:$CLASH_WEB_GROUP" "$CLASH_WEB_DIR/config.yaml"
+fi
+
+if ! grep -q '^external-controller:' "$CLASH_WEB_DIR/config.yaml" 2>/dev/null; then
+    cat >> "$CLASH_WEB_DIR/config.yaml" <<'DEFAULTCONTROLLER'
+
+external-controller: 127.0.0.1:9090
+DEFAULTCONTROLLER
+    chown "$CLASH_WEB_USER:$CLASH_WEB_GROUP" "$CLASH_WEB_DIR/config.yaml"
+fi
+
+systemctl daemon-reload
+systemctl reset-failed mihomo.service 2>/dev/null || true
+
+if command -v pkcheck &>/dev/null || systemctl list-unit-files polkit.service &>/dev/null; then
+    chmod 644 /etc/polkit-1/rules.d/10-clash-web-mihomo.rules 2>/dev/null || true
+fi
+
+if command -v mihomo &>/dev/null || [ -f "$CLASH_WEB_BIN/mihomo" ]; then
+    systemctl enable mihomo.service 2>/dev/null || true
+fi
+
+systemctl enable clash-web.service 2>/dev/null || true
+
+echo ""
+echo "============================================"
+echo "  Clash Web installed successfully!"
+echo "============================================"
+echo ""
+echo "  Web UI: http://<your-ip>:9097"
+echo ""
+echo "  Config: /etc/clash-web/service.yaml"
+echo ""
+echo "  Start:  sudo systemctl start clash-web"
+echo "  Status: sudo systemctl status clash-web"
+echo ""
+echo "  To install mihomo kernel, open the Web UI"
+echo "  and click 'Install' in Settings page."
+echo ""
+echo "============================================"

@@ -1,0 +1,17 @@
+#!/bin/bash
+set -e
+
+if [ "$1" = "purge" ]; then
+    systemctl disable clash-web.service 2>/dev/null || true
+    systemctl disable mihomo.service 2>/dev/null || true
+    rm -f /lib/systemd/system/clash-web.service
+    rm -f /lib/systemd/system/mihomo.service
+    rm -f /etc/polkit-1/rules.d/10-clash-web-mihomo.rules
+    systemctl daemon-reload
+
+    echo "Removing clash-web user..."
+    userdel clash-web 2>/dev/null || true
+
+    echo "Configuration retained at /etc/clash-web/"
+    echo "To remove all data: rm -rf /etc/clash-web/"
+fi

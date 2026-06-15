@@ -1,0 +1,11 @@
+server:
+  host: 0.0.0.0
+  port: 9097
+
+mihomo:
+  api_url: http://127.0.0.1:9090
+  config_dir: /home/ikaros/clash-web/.runtime/clash-web
+  secret: ""
+
+auth:
+  token: ""

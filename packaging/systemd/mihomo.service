@@ -1,0 +1,18 @@
+[Unit]
+Description=mihomo proxy daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=clash-web
+Group=clash-web
+ExecStart=/etc/clash-web/bin/mihomo -d /etc/clash-web
+Restart=on-failure
+RestartSec=5
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
