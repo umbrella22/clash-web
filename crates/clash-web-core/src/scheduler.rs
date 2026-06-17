@@ -5,6 +5,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time::{Duration, interval};
 use tracing::{info, warn};
 
+const MIN_INTERVAL_HOURS: u64 = 1;
+const MAX_INTERVAL_HOURS: u64 = 24 * 30;
+
 pub struct SubscriptionScheduler {
     cancel_token: tokio_util::sync::CancellationToken,
     running: Arc<AtomicBool>,
@@ -19,6 +22,14 @@ impl SubscriptionScheduler {
     }
 
     pub fn start(&self, profiles: Arc<ProfileManager>, interval_hours: u64) {
+        let Some(interval_secs) = interval_hours
+            .clamp(MIN_INTERVAL_HOURS, MAX_INTERVAL_HOURS)
+            .checked_mul(3600)
+        else {
+            warn!("Invalid subscription scheduler interval: {} hours", interval_hours);
+            return;
+        };
+
         if self.running.swap(true, Ordering::SeqCst) {
             warn!("Subscription scheduler is already running");
             return;
@@ -27,7 +38,7 @@ impl SubscriptionScheduler {
         let running = self.running.clone();
         tokio::spawn(async move {
             let _running_guard = SchedulerRunningGuard { running };
-            let mut ticker = interval(Duration::from_secs(interval_hours * 3600));
+            let mut ticker = interval(Duration::from_secs(interval_secs));
             ticker.tick().await;
 
             loop {

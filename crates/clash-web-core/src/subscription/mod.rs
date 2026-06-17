@@ -11,6 +11,9 @@ use std::time::Duration;
 use url::Url;
 
 pub const MAX_SUBSCRIPTION_SIZE: usize = 2 * 1024 * 1024;
+pub const MAX_SUBSCRIPTION_TIMEOUT_SECS: u64 = 120;
+pub const MAX_SUBSCRIPTION_RETRY_COUNT: u32 = 3;
+pub const MAX_SUBSCRIPTION_RETRY_INTERVAL_SECS: u64 = 60;
 
 #[derive(Clone)]
 pub struct SubscriptionDownloadOptions {
@@ -37,6 +40,21 @@ impl Default for SubscriptionDownloadOptions {
     }
 }
 
+impl SubscriptionDownloadOptions {
+    pub fn limited(mut self) -> Self {
+        self.timeout_secs = Some(
+            self.timeout_secs
+                .unwrap_or(30)
+                .clamp(1, MAX_SUBSCRIPTION_TIMEOUT_SECS),
+        );
+        self.retry_count = self.retry_count.min(MAX_SUBSCRIPTION_RETRY_COUNT);
+        self.retry_interval_secs = self
+            .retry_interval_secs
+            .min(MAX_SUBSCRIPTION_RETRY_INTERVAL_SECS);
+        self
+    }
+}
+
 pub async fn download_subscription(
     url: &str,
     user_agent: Option<&str>,
@@ -50,6 +68,7 @@ pub async fn download_subscription_with_options(
     user_agent: Option<&str>,
     options: SubscriptionDownloadOptions,
 ) -> Result<SubscriptionDownloadResult> {
+    let options = options.limited();
     validate_subscription_url(url, options.clone())?;
 
     let timeout_secs = options.timeout_secs.unwrap_or(30);

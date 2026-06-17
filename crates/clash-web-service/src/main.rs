@@ -4,7 +4,20 @@ mod state;
 
 use clap::Parser;
 use clash_web_core::AppConfig;
+use std::net::IpAddr;
 use state::AppState;
+
+fn requires_auth_token(config: &AppConfig) -> bool {
+    if !config.auth.token.is_empty() {
+        return false;
+    }
+
+    match config.server.host.parse::<IpAddr>() {
+        Ok(IpAddr::V4(addr)) => !addr.is_loopback(),
+        Ok(IpAddr::V6(addr)) => !addr.is_loopback(),
+        Err(_) => config.server.host != "localhost",
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(name = "clash-web-service", about = "Clash Web Management Service")]
@@ -27,6 +40,9 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let config_path = std::path::Path::new(&args.config);
     let config = AppConfig::load(config_path)?;
+    if requires_auth_token(&config) {
+        anyhow::bail!("auth.token must be set when binding to a non-loopback host");
+    }
 
     let addr = format!("{}:{}", config.server.host, config.server.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

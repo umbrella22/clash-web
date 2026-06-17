@@ -24,7 +24,7 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import MenuIcon from "@mui/icons-material/Menu";
 
 import { useStatus } from "../hooks/useApi";
-import { useMihomoDownloadTask } from "../hooks/useMihomoDownloadTask";
+import { useMihomoDownloadTaskContext } from "../contexts/MihomoDownloadTaskContext";
 import {
   describeDownloadStatus,
   formatBytes,
@@ -56,7 +56,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const isMobile = useMediaQuery(theme.breakpoints.down("md"));
   const [mobileOpen, setMobileOpen] = useState(false);
   const { data: status } = useStatus();
-  const { progress, actionPending } = useMihomoDownloadTask();
+  const { progress, actionPending } = useMihomoDownloadTaskContext();
 
   const isProxyConnected = status?.mihomo_running ?? false;
   const downloadStatusActive = actionPending && progress;

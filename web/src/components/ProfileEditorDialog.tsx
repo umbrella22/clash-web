@@ -23,8 +23,12 @@ export default function ProfileEditorDialog({ uid, onClose }: Props) {
   const [content, setContent] = useState("");
 
   useEffect(() => {
-    if (data?.content) setContent(data.content);
-  }, [data?.content]);
+    if (!uid) {
+      setContent("");
+      return;
+    }
+    if (data?.content !== undefined) setContent(data.content);
+  }, [data?.content, uid]);
 
   const handleSave = () => {
     if (!uid) return;

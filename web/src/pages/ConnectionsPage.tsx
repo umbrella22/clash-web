@@ -4,6 +4,7 @@ import {
   Alert,
   type AlertColor,
   Box,
+  Button,
   Typography,
   IconButton,
   TextField,
@@ -63,7 +64,7 @@ export default function ConnectionsPage() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [snack, setSnack] = useState<{ severity: AlertColor; message: string } | null>(null);
 
-  const { data, isLoading, isFetching } = useQuery({
+  const { data, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["connections"],
     queryFn: () => mihomoApi.get<ConnectionsData>("/connections").then((r) => r.data),
     refetchInterval: (query) => {
@@ -239,6 +240,15 @@ export default function ConnectionsPage() {
         </Table>
         </TableContainer>
       </SystemPanel>
+      {isError && (
+        <Alert severity="error" sx={{ mt: 2 }} action={
+          <Button color="inherit" size="small" onClick={() => void refetch()}>
+            Retry
+          </Button>
+        }>
+          {error instanceof Error ? error.message : t("connections.close_failed")}
+        </Alert>
+      )}
       {filtered.length === 0 && (
         <Alert severity="info" sx={{ mt: 2 }}>
           {connections.length === 0 ? t("connections.empty") : t("connections.empty_filtered")}

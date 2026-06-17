@@ -57,7 +57,7 @@ import {
   formatRemainingTime,
   isDownloadTaskActive,
 } from "../features/mihomoDownload";
-import { useMihomoDownloadTask } from "../hooks/useMihomoDownloadTask";
+import { useMihomoDownloadTaskContext } from "../contexts/MihomoDownloadTaskContext";
 import RealtimeLineChart from "../components/RealtimeLineChart";
 import {
   getOverviewCardOrder,
@@ -117,7 +117,7 @@ export default function OverviewPage() {
   const { traffic, history, status: trafficStreamStatus } = useTraffic();
   const { memory, history: memoryHistory, status: memoryStreamStatus } = useMemory();
   const { progress, actionError, actionPending, runDownloadAction } =
-    useMihomoDownloadTask();
+    useMihomoDownloadTaskContext();
 
   const { data: installInfo } = useQuery({
     queryKey: ["mihomoInstall"],

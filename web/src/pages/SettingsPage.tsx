@@ -44,7 +44,7 @@ import {
   formatRemainingTime,
   isDownloadTaskActive,
 } from "../features/mihomoDownload";
-import { useMihomoDownloadTask } from "../hooks/useMihomoDownloadTask";
+import { useMihomoDownloadTaskContext } from "../contexts/MihomoDownloadTaskContext";
 import {
   useApplyDnsConfig,
   useBackups,
@@ -764,7 +764,7 @@ function MihomoVersionCard() {
   });
 
   const { progress, actionError, actionPending, refreshStatus, runDownloadAction } =
-    useMihomoDownloadTask();
+    useMihomoDownloadTaskContext();
 
   useEffect(() => {
     if (!actionPending) {
@@ -1141,8 +1141,17 @@ function TunModeCard() {
 
   const toggle = useMutation({
     mutationFn: (enabled: boolean) => setTunMode(enabled, stack),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["tunMode"] }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["tunMode"] });
+    },
   });
+
+  const stackChanged = data ? stack !== data.stack : false;
+  const buttonLabel = data?.enabled
+    ? stackChanged
+      ? t("settings.save")
+      : t("settings.disable")
+    : t("settings.enable");
 
   return (
     <SettingsSectionCard
@@ -1162,10 +1171,10 @@ function TunModeCard() {
           <Button
             variant={data.enabled ? "outlined" : "contained"}
             size="small"
-            onClick={() => toggle.mutate(!data.enabled)}
+            onClick={() => toggle.mutate(stackChanged ? data.enabled : !data.enabled)}
             disabled={toggle.isPending}
           >
-            {data.enabled ? t("settings.disable") : t("settings.enable")}
+            {buttonLabel}
           </Button>
         ) : undefined
       }

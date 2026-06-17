@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{Mutex, watch};
 
 const MAX_DOWNLOAD_BYTES: u64 = 100 * 1024 * 1024;
 const MAX_EXTRACTED_BYTES: u64 = 200 * 1024 * 1024;
+const GITHUB_API_TIMEOUT_SECS: u64 = 15;
+const DOWNLOAD_TIMEOUT_SECS: u64 = 300;
 
 #[derive(Debug, Clone, Deserialize)]
 struct GitHubRelease {
@@ -273,7 +275,10 @@ impl MihomoInstaller {
     }
 
     async fn fetch_latest_release() -> Result<GitHubRelease> {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(GITHUB_API_TIMEOUT_SECS))
+            .build()?;
         let resp = client
             .get("https://api.github.com/repos/MetaCubeX/mihomo/releases/latest")
             .header("User-Agent", "clash-web/0.1.0")
@@ -603,7 +608,10 @@ impl MihomoInstaller {
             format!("Connecting to {}", url),
         ));
 
-        let client = reqwest::Client::builder().build()?;
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+            .build()?;
         let resp = client
             .get(&url)
             .header("User-Agent", "clash-web/0.1.0")

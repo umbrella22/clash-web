@@ -2,6 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
+const MAX_BACKUPS: usize = 20;
+const MAX_BACKUP_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_BACKUP_SOURCE_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_BACKUP_FILES: u64 = 5000;
+const MAX_BACKUP_DEPTH: u32 = 16;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum BackupKind {
     #[serde(rename = "manual")]
@@ -49,29 +55,10 @@ impl BackupManager {
     }
 
     pub async fn list(&self) -> anyhow::Result<Vec<BackupMetadata>> {
-        std::fs::create_dir_all(self.backups_dir())?;
-        let mut backups = Vec::new();
-
-        for entry in std::fs::read_dir(self.backups_dir())? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-
-            let metadata_path = entry.path().join("metadata.json");
-            if !metadata_path.exists() {
-                continue;
-            }
-
-            let content = std::fs::read_to_string(metadata_path)?;
-            let mut metadata: BackupMetadata = serde_json::from_str(&content)?;
-            metadata.size = dir_size(&entry.path())?;
-            metadata.restorable = self.is_restorable(&entry.path());
-            backups.push(metadata);
-        }
-
-        backups.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        Ok(backups)
+        let backups_dir = self.backups_dir();
+        let service_config_path = self.service_config_path.clone();
+        tokio::task::spawn_blocking(move || list_backups_blocking(backups_dir, service_config_path))
+            .await?
     }
 
     pub async fn delete(&self, id: &str) -> anyhow::Result<()> {
@@ -80,7 +67,7 @@ impl BackupManager {
             anyhow::bail!("Backup not found: {}", id);
         }
 
-        std::fs::remove_dir_all(backup_dir)?;
+        tokio::task::spawn_blocking(move || std::fs::remove_dir_all(backup_dir)).await??;
         Ok(())
     }
 
@@ -93,7 +80,12 @@ impl BackupManager {
             anyhow::bail!("Backup is not restorable: {}", id);
         }
 
-        let restored = self.read_metadata(&backup_dir)?;
+        let restored_backup_dir = backup_dir.clone();
+        let service_config_path = self.service_config_path.clone();
+        let restored = tokio::task::spawn_blocking(move || {
+            read_metadata_blocking(&restored_backup_dir, service_config_path)
+        })
+        .await??;
         let safety_snapshot = self
             .create_with_kind(
                 Some(format!("Safety snapshot before restoring {}", id)),
@@ -101,7 +93,10 @@ impl BackupManager {
             )
             .await?;
 
-        self.restore_files(&backup_dir)?;
+        let config_dir = self.config_dir.clone();
+        let service_config_path = self.service_config_path.clone();
+        tokio::task::spawn_blocking(move || restore_files_blocking(&backup_dir, &config_dir, service_config_path))
+            .await??;
 
         Ok(RestoreBackupResult {
             restored,
@@ -133,28 +128,34 @@ impl BackupManager {
         name: Option<String>,
         kind: BackupKind,
     ) -> anyhow::Result<BackupMetadata> {
-        std::fs::create_dir_all(self.backups_dir())?;
+        self.enforce_retention().await?;
         let created_at = chrono::Utc::now().timestamp();
         let id = self.next_backup_id(&kind);
         let backup_dir = self.backup_dir(&id)?;
+        let config_dir = self.config_dir.clone();
+        let service_config_path = self.service_config_path.clone();
+        let backup_name = name.unwrap_or_else(|| "Manual backup".to_string());
 
-        std::fs::create_dir(&backup_dir)?;
-        self.copy_current_files(&backup_dir)?;
+        tokio::task::spawn_blocking(move || {
+            create_backup_blocking(
+                config_dir,
+                service_config_path,
+                backup_dir,
+                id,
+                backup_name,
+                created_at,
+                kind,
+            )
+        })
+        .await?
+    }
 
-        let mut metadata = BackupMetadata {
-            id,
-            name: name.unwrap_or_else(|| "Manual backup".to_string()),
-            created_at,
-            size: dir_size(&backup_dir)?,
-            restorable: self.is_restorable(&backup_dir),
-            kind,
-        };
-        self.write_metadata(&backup_dir, &metadata)?;
-        metadata.size = dir_size(&backup_dir)?;
-        metadata.restorable = self.is_restorable(&backup_dir);
-        self.write_metadata(&backup_dir, &metadata)?;
-
-        Ok(metadata)
+    async fn enforce_retention(&self) -> anyhow::Result<()> {
+        let backups_dir = self.backups_dir();
+        let service_config_path = self.service_config_path.clone();
+        tokio::task::spawn_blocking(move || enforce_retention_blocking(backups_dir, service_config_path))
+            .await??;
+        Ok(())
     }
 
     fn next_backup_id(&self, kind: &BackupKind) -> String {
@@ -166,83 +167,233 @@ impl BackupManager {
         format!("{}-{}-{}", prefix, timestamp, uuid::Uuid::new_v4())
     }
 
-    fn copy_current_files(&self, backup_dir: &Path) -> anyhow::Result<()> {
-        if let Some(service_config_path) = &self.service_config_path {
-            if service_config_path.exists() {
-                std::fs::copy(service_config_path, backup_dir.join("service.yaml"))?;
-            }
-        }
-
-        copy_file_if_exists(
-            self.config_dir.join("profiles.json"),
-            backup_dir.join("profiles.json"),
-        )?;
-        copy_file_if_exists(
-            self.config_dir.join("dns.yaml"),
-            backup_dir.join("dns.yaml"),
-        )?;
-        copy_dir_if_exists(
-            self.config_dir.join("profiles"),
-            backup_dir.join("profiles"),
-        )?;
-        Ok(())
-    }
-
-    fn restore_files(&self, backup_dir: &Path) -> anyhow::Result<()> {
-        if let Some(service_config_path) = &self.service_config_path {
-            let source = backup_dir.join("service.yaml");
-            if source.exists() {
-                if let Some(parent) = service_config_path.parent() {
-                    std::fs::create_dir_all(parent)?;
-                }
-                std::fs::copy(source, service_config_path)?;
-            }
-        }
-
-        copy_file_if_exists(
-            backup_dir.join("profiles.json"),
-            self.config_dir.join("profiles.json"),
-        )?;
-        copy_file_if_exists(
-            backup_dir.join("dns.yaml"),
-            self.config_dir.join("dns.yaml"),
-        )?;
-
-        let source_profiles = backup_dir.join("profiles");
-        let target_profiles = self.config_dir.join("profiles");
-        if source_profiles.exists() {
-            if target_profiles.exists() {
-                std::fs::remove_dir_all(&target_profiles)?;
-            }
-            copy_dir(&source_profiles, &target_profiles)?;
-        }
-
-        Ok(())
-    }
-
-    fn read_metadata(&self, backup_dir: &Path) -> anyhow::Result<BackupMetadata> {
-        let content = std::fs::read_to_string(backup_dir.join("metadata.json"))?;
-        let mut metadata: BackupMetadata = serde_json::from_str(&content)?;
-        metadata.size = dir_size(backup_dir)?;
-        metadata.restorable = self.is_restorable(backup_dir);
-        Ok(metadata)
-    }
-
-    fn write_metadata(&self, backup_dir: &Path, metadata: &BackupMetadata) -> anyhow::Result<()> {
-        let content = serde_json::to_string_pretty(metadata)?;
-        std::fs::write(backup_dir.join("metadata.json"), content)?;
-        Ok(())
-    }
-
     fn is_restorable(&self, backup_dir: &Path) -> bool {
-        let has_service_config =
-            self.service_config_path.is_none() || backup_dir.join("service.yaml").is_file();
-        has_service_config
-            && backup_dir.join("metadata.json").is_file()
-            && backup_dir.join("profiles.json").is_file()
-            && backup_dir.join("dns.yaml").is_file()
-            && backup_dir.join("profiles").is_dir()
+        is_restorable_blocking(backup_dir, self.service_config_path.as_ref())
     }
+}
+
+fn list_backups_blocking(
+    backups_dir: PathBuf,
+    service_config_path: Option<PathBuf>,
+) -> anyhow::Result<Vec<BackupMetadata>> {
+    std::fs::create_dir_all(&backups_dir)?;
+    let mut backups = Vec::new();
+
+    for entry in std::fs::read_dir(&backups_dir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+
+        let metadata_path = entry.path().join("metadata.json");
+        if !metadata_path.exists() {
+            continue;
+        }
+
+        let content = std::fs::read_to_string(metadata_path)?;
+        let mut metadata: BackupMetadata = serde_json::from_str(&content)?;
+        metadata.size = dir_size_limited(&entry.path())?.bytes;
+        metadata.restorable = is_restorable_blocking(&entry.path(), service_config_path.as_ref());
+        backups.push(metadata);
+    }
+
+    backups.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    Ok(backups)
+}
+
+fn enforce_retention_blocking(
+    backups_dir: PathBuf,
+    service_config_path: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let mut backups = list_backups_blocking(backups_dir.clone(), service_config_path)?;
+    while backups.len() >= MAX_BACKUPS {
+        if let Some(oldest) = backups.pop() {
+            std::fs::remove_dir_all(backups_dir.join(oldest.id))?;
+        }
+    }
+
+    let mut total: u64 = backups.iter().map(|backup| backup.size).sum();
+    while total > MAX_BACKUP_TOTAL_BYTES {
+        if let Some(oldest) = backups.pop() {
+            total = total.saturating_sub(oldest.size);
+            std::fs::remove_dir_all(backups_dir.join(oldest.id))?;
+        } else {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+fn create_backup_blocking(
+    config_dir: PathBuf,
+    service_config_path: Option<PathBuf>,
+    backup_dir: PathBuf,
+    id: String,
+    name: String,
+    created_at: i64,
+    kind: BackupKind,
+) -> anyhow::Result<BackupMetadata> {
+    validate_backup_source(&config_dir, service_config_path.as_ref())?;
+    let backups_dir = config_dir.join("backups");
+    std::fs::create_dir_all(backups_dir)?;
+    std::fs::create_dir(&backup_dir)?;
+    copy_current_files_blocking(&config_dir, service_config_path.as_ref(), &backup_dir)?;
+
+    let mut metadata = BackupMetadata {
+        id,
+        name,
+        created_at,
+        size: dir_size_limited(&backup_dir)?.bytes,
+        restorable: is_restorable_blocking(&backup_dir, service_config_path.as_ref()),
+        kind,
+    };
+    write_metadata_blocking(&backup_dir, &metadata)?;
+    metadata.size = dir_size_limited(&backup_dir)?.bytes;
+    metadata.restorable = is_restorable_blocking(&backup_dir, service_config_path.as_ref());
+    write_metadata_blocking(&backup_dir, &metadata)?;
+
+    Ok(metadata)
+}
+
+fn copy_current_files_blocking(
+    config_dir: &Path,
+    service_config_path: Option<&PathBuf>,
+    backup_dir: &Path,
+) -> anyhow::Result<()> {
+    if let Some(service_config_path) = service_config_path {
+        if service_config_path.exists() {
+            std::fs::copy(service_config_path, backup_dir.join("service.yaml"))?;
+        }
+    }
+
+    copy_file_if_exists(config_dir.join("profiles.json"), backup_dir.join("profiles.json"))?;
+    copy_file_if_exists(config_dir.join("dns.yaml"), backup_dir.join("dns.yaml"))?;
+    copy_dir_if_exists(config_dir.join("profiles"), backup_dir.join("profiles"))?;
+    Ok(())
+}
+
+fn restore_files_blocking(
+    backup_dir: &Path,
+    config_dir: &Path,
+    service_config_path: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    if let Some(service_config_path) = service_config_path {
+        let source = backup_dir.join("service.yaml");
+        if source.exists() {
+            if let Some(parent) = service_config_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(source, service_config_path)?;
+        }
+    }
+
+    copy_file_if_exists(backup_dir.join("profiles.json"), config_dir.join("profiles.json"))?;
+    copy_file_if_exists(backup_dir.join("dns.yaml"), config_dir.join("dns.yaml"))?;
+
+    let source_profiles = backup_dir.join("profiles");
+    let target_profiles = config_dir.join("profiles");
+    if source_profiles.exists() {
+        validate_dir_limits(&source_profiles)?;
+        if target_profiles.exists() {
+            std::fs::remove_dir_all(&target_profiles)?;
+        }
+        copy_dir(&source_profiles, &target_profiles)?;
+    }
+
+    Ok(())
+}
+
+fn read_metadata_blocking(
+    backup_dir: &Path,
+    service_config_path: Option<PathBuf>,
+) -> anyhow::Result<BackupMetadata> {
+    let content = std::fs::read_to_string(backup_dir.join("metadata.json"))?;
+    let mut metadata: BackupMetadata = serde_json::from_str(&content)?;
+    metadata.size = dir_size_limited(backup_dir)?.bytes;
+    metadata.restorable = is_restorable_blocking(backup_dir, service_config_path.as_ref());
+    Ok(metadata)
+}
+
+fn write_metadata_blocking(backup_dir: &Path, metadata: &BackupMetadata) -> anyhow::Result<()> {
+    let content = serde_json::to_string_pretty(metadata)?;
+    std::fs::write(backup_dir.join("metadata.json"), content)?;
+    Ok(())
+}
+
+fn is_restorable_blocking(backup_dir: &Path, service_config_path: Option<&PathBuf>) -> bool {
+    let has_service_config = service_config_path.is_none() || backup_dir.join("service.yaml").is_file();
+    has_service_config
+        && backup_dir.join("metadata.json").is_file()
+        && backup_dir.join("profiles.json").is_file()
+        && backup_dir.join("dns.yaml").is_file()
+        && backup_dir.join("profiles").is_dir()
+}
+
+fn validate_backup_source(config_dir: &Path, service_config_path: Option<&PathBuf>) -> anyhow::Result<()> {
+    let mut stats = DirStats::default();
+    add_file_stats(config_dir.join("profiles.json"), &mut stats)?;
+    add_file_stats(config_dir.join("dns.yaml"), &mut stats)?;
+    if let Some(service_config_path) = service_config_path {
+        add_file_stats(service_config_path, &mut stats)?;
+    }
+    add_dir_stats(&config_dir.join("profiles"), 0, &mut stats)?;
+    Ok(())
+}
+
+fn validate_dir_limits(path: &Path) -> anyhow::Result<()> {
+    dir_size_limited(path).map(|_| ())
+}
+
+#[derive(Default)]
+struct DirStats {
+    bytes: u64,
+    files: u64,
+}
+
+fn add_file_stats(path: impl AsRef<Path>, stats: &mut DirStats) -> anyhow::Result<()> {
+    let path = path.as_ref();
+    if !path.exists() {
+        return Ok(());
+    }
+    let metadata = std::fs::metadata(path)?;
+    if metadata.is_file() {
+        stats.files = stats.files.saturating_add(1);
+        stats.bytes = stats.bytes.saturating_add(metadata.len());
+        ensure_stats_within_limits(stats)?;
+    }
+    Ok(())
+}
+
+fn add_dir_stats(path: &Path, depth: u32, stats: &mut DirStats) -> anyhow::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    if depth > MAX_BACKUP_DEPTH {
+        anyhow::bail!("Backup directory exceeds maximum depth");
+    }
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let metadata = entry.metadata()?;
+        if metadata.is_dir() {
+            add_dir_stats(&entry.path(), depth + 1, stats)?;
+        } else if metadata.is_file() {
+            stats.files = stats.files.saturating_add(1);
+            stats.bytes = stats.bytes.saturating_add(metadata.len());
+            ensure_stats_within_limits(stats)?;
+        }
+    }
+    Ok(())
+}
+
+fn ensure_stats_within_limits(stats: &DirStats) -> anyhow::Result<()> {
+    if stats.files > MAX_BACKUP_FILES {
+        anyhow::bail!("Backup source contains too many files");
+    }
+    if stats.bytes > MAX_BACKUP_SOURCE_BYTES {
+        anyhow::bail!("Backup source exceeds size limit");
+    }
+    Ok(())
 }
 
 fn copy_file_if_exists(source: impl AsRef<Path>, target: impl AsRef<Path>) -> anyhow::Result<()> {
@@ -285,20 +436,10 @@ fn copy_dir(source: &Path, target: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn dir_size(path: &Path) -> anyhow::Result<u64> {
-    let mut size = 0;
-
-    for entry in std::fs::read_dir(path)? {
-        let entry = entry?;
-        let metadata = entry.metadata()?;
-        if metadata.is_dir() {
-            size += dir_size(&entry.path())?;
-        } else {
-            size += metadata.len();
-        }
-    }
-
-    Ok(size)
+fn dir_size_limited(path: &Path) -> anyhow::Result<DirStats> {
+    let mut stats = DirStats::default();
+    add_dir_stats(path, 0, &mut stats)?;
+    Ok(stats)
 }
 
 #[cfg(test)]

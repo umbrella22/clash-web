@@ -18,6 +18,7 @@ import ProfilesPage from "./pages/ProfilesPage";
 import ProxiesPage from "./pages/ProxiesPage";
 import RulesPage from "./pages/RulesPage";
 import SettingsPage from "./pages/SettingsPage";
+import { MihomoDownloadTaskProvider } from "./contexts/MihomoDownloadTaskContext";
 import {
   clearStoredToken,
   getAuthStatus,
@@ -194,9 +195,11 @@ function AppRouter() {
             <Route
               path="*"
               element={
-                <MainLayout>
-                  <MainRoutes />
-                </MainLayout>
+                <MihomoDownloadTaskProvider>
+                  <MainLayout>
+                    <MainRoutes />
+                  </MainLayout>
+                </MihomoDownloadTaskProvider>
               }
             />
           </>

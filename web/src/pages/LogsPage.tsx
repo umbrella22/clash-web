@@ -35,6 +35,9 @@ export default function LogsPage() {
   const pendingLogsRef = useRef<LogEntry[]>([]);
   const flushTimerRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
+  const mountedRef = useRef(false);
   const isDark = theme.palette.mode === "dark";
   const accentColor = isDark ? "#7ee787" : theme.palette.primary.main;
   const mutedColor = theme.palette.text.secondary;
@@ -61,8 +64,12 @@ export default function LogsPage() {
   }, []);
 
   const connect = useCallback(() => {
+    if (!mountedRef.current || wsRef.current) return;
     const ws = createLogsWs("debug");
     wsRef.current = ws;
+    ws.onopen = () => {
+      reconnectAttemptRef.current = 0;
+    };
     ws.onmessage = (e) => {
       try {
         const entry: LogEntry = JSON.parse(e.data);
@@ -75,13 +82,31 @@ export default function LogsPage() {
         }
       } catch {}
     };
-    ws.onclose = () => { wsRef.current = null; };
+    ws.onclose = () => {
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+      }
+      if (!mountedRef.current || reconnectTimerRef.current !== null) return;
+      const delay = Math.min(1000 * 2 ** reconnectAttemptRef.current, 10000);
+      reconnectAttemptRef.current += 1;
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, delay);
+    };
   }, [flushPendingLogs]);
 
   useEffect(() => {
+    mountedRef.current = true;
     connect();
     return () => {
+      mountedRef.current = false;
       wsRef.current?.close();
+      wsRef.current = null;
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       if (flushTimerRef.current !== null) {
         window.clearTimeout(flushTimerRef.current);
         flushTimerRef.current = null;
