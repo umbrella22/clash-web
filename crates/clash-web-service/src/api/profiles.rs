@@ -2,6 +2,7 @@ use axum::{
     Json,
     extract::{Multipart, Path, State},
 };
+use clash_web_core::config::DEFAULT_MIHOMO_CONFIG;
 use clash_web_core::enhance::build_runtime_config_with_dns;
 use clash_web_core::mihomo::systemctl;
 use clash_web_core::precheck::validate_runtime_config;
@@ -29,6 +30,29 @@ async fn subscription_proxy_url(state: &AppState) -> Option<String> {
         .or_else(|| configs.get("port").and_then(|value| value.as_u64()))
         .unwrap_or(7890);
     Some(format!("http://127.0.0.1:{}", port))
+}
+
+async fn subscription_download_options(
+    state: &AppState,
+    extra: Option<&ProfileExtra>,
+) -> SubscriptionDownloadOptions {
+    let proxy = if extra.is_some_and(|e| e.download_via_proxy) {
+        subscription_proxy_url(state).await
+    } else {
+        None
+    };
+
+    SubscriptionDownloadOptions {
+        timeout_secs: extra.and_then(|e| e.download_timeout),
+        skip_cert_verify: extra.is_some_and(|e| e.skip_cert_verify),
+        proxy,
+        request_headers: extra.map(|e| e.request_headers.clone()).unwrap_or_default(),
+        retry_count: extra.and_then(|e| e.retry_count).unwrap_or_default(),
+        retry_interval_secs: extra
+            .and_then(|e| e.retry_interval_secs)
+            .unwrap_or_default(),
+        allow_private_hosts: false,
+    }
 }
 
 fn expected_proxy_groups(runtime_config: &str) -> Result<Vec<String>, AppError> {
@@ -224,6 +248,76 @@ async fn apply_profile_config(state: &AppState, uid: &str) -> Result<(), AppErro
     Ok(())
 }
 
+async fn clear_runtime_config(state: &AppState) -> Result<(), AppError> {
+    let dns_config = state
+        .dns
+        .read()
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let runtime_config =
+        build_runtime_config_with_dns(DEFAULT_MIHOMO_CONFIG, &[], Some(&dns_config)).map_err(
+            |e| AppError::Internal(format!("Failed to build empty runtime config: {}", e)),
+        )?;
+    validate_runtime_config(&runtime_config)
+        .map_err(|e| AppError::PrecheckFailed(e.to_string()))?;
+    state
+        .profiles
+        .write_active_runtime_config(&runtime_config)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to write empty runtime config: {}", e)))?;
+
+    let service_config_path = state
+        .profiles
+        .service_config_path()
+        .to_string_lossy()
+        .to_string();
+    let apply_result = state
+        .mihomo
+        .proxy_request(
+            reqwest::Method::PUT,
+            "/configs?force=true",
+            Some(serde_json::json!({ "path": service_config_path })),
+        )
+        .await;
+
+    match apply_result {
+        Ok(resp) => {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            if status.is_success() {
+                Ok(())
+            } else if body.trim().is_empty() {
+                Err(AppError::BadRequest(format!(
+                    "mihomo rejected empty config with status {}",
+                    status
+                )))
+            } else {
+                Err(AppError::BadRequest(format!(
+                    "mihomo rejected empty config with status {}: {}",
+                    status, body
+                )))
+            }
+        }
+        Err(error) => {
+            let output = systemctl("restart", "mihomo").await.map_err(|restart_error| {
+                AppError::Internal(format!(
+                    "Failed to clear runtime config: {}, and failed to restart mihomo: {}",
+                    error, restart_error
+                ))
+            })?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(AppError::Internal(format!(
+                    "Failed to clear runtime config: {}, and mihomo restart failed: {}",
+                    error, stderr
+                )))
+            }
+        }
+    }
+}
+
 pub async fn list_profiles(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, AppError> {
@@ -297,6 +391,48 @@ pub async fn create_profile(
         .create(profile)
         .await
         .map_err(|e| AppError::BadRequest(e.to_string()))?;
+    if matches!(created.profile_type, ProfileType::Remote)
+        && let Some(url) = created.url.as_deref()
+    {
+        let extra = created.extra.as_ref();
+        let ua = extra.and_then(|e| e.user_agent.as_deref());
+        let options = subscription_download_options(&state, extra).await;
+        let result = download_subscription_with_options(url, ua, options)
+            .await
+            .map_err(|e| AppError::BadRequest(format!("Failed to download: {}", e)))?;
+        state
+            .profiles
+            .write_file(&created.uid, &result.content)
+            .await
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        let now = chrono::Utc::now().timestamp();
+        let info = result.subscription_info.unwrap_or(SubscriptionInfo {
+            upload: 0,
+            download: 0,
+            total: 0,
+            expire: None,
+        });
+        let detail = SubscriptionUpdateDetail {
+            success: true,
+            updated_at: now,
+            attempts: result.attempts,
+            http_status: Some(result.http_status),
+            error: None,
+            downloaded_bytes: result.downloaded_bytes,
+            kept_old: false,
+        };
+        state
+            .profiles
+            .update_subscription_result(&created.uid, Some(info), detail)
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let updated = state
+            .profiles
+            .get(&created.uid)
+            .await
+            .ok_or_else(|| AppError::NotFound(format!("Profile not found: {}", created.uid)))?;
+        return Ok(Json(json!(updated)));
+    }
     Ok(Json(json!(created)))
 }
 
@@ -317,11 +453,19 @@ pub async fn delete_profile(
     State(state): State<AppState>,
     Path(uid): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    let is_active = state
+        .profiles
+        .get_active()
+        .await
+        .is_some_and(|profile| profile.uid == uid);
     state
         .profiles
         .delete(&uid)
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
+    if is_active {
+        clear_runtime_config(&state).await?;
+    }
     Ok(Json(json!({ "success": true })))
 }
 
@@ -377,23 +521,8 @@ pub async fn update_subscription(
 
     let extra = profile.extra.as_ref();
     let ua = extra.and_then(|e| e.user_agent.as_deref());
-    let proxy = if extra.is_some_and(|e| e.download_via_proxy) {
-        subscription_proxy_url(&state).await
-    } else {
-        None
-    };
-    let options = SubscriptionDownloadOptions {
-        timeout_secs: extra.and_then(|e| e.download_timeout),
-        skip_cert_verify: extra.is_some_and(|e| e.skip_cert_verify),
-        proxy,
-        request_headers: extra.map(|e| e.request_headers.clone()).unwrap_or_default(),
-        retry_count: extra.and_then(|e| e.retry_count).unwrap_or_default(),
-        retry_interval_secs: extra
-            .and_then(|e| e.retry_interval_secs)
-            .unwrap_or_default(),
-        allow_private_hosts: false,
-    };
-    let attempted = options.retry_count.saturating_add(1);
+    let options = subscription_download_options(&state, extra).await;
+    let attempted = options.clone().limited().retry_count.saturating_add(1);
 
     let result = match download_subscription_with_options(&url, ua, options).await {
         Ok(result) => result,

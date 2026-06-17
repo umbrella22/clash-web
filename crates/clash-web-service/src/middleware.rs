@@ -55,6 +55,10 @@ pub async fn auth_middleware(
     }
 
     let path = req.uri().path();
+    if !path.starts_with("/api/v1") {
+        return Ok(next.run(req).await);
+    }
+
     if path.starts_with("/api/v1/auth") {
         return Ok(next.run(req).await);
     }

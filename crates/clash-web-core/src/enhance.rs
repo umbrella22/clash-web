@@ -1,5 +1,5 @@
 use anyhow::Result;
-use serde_yaml::Value;
+use serde_yaml::{Mapping, Value};
 use std::collections::HashMap;
 
 pub fn apply_merge(base: &str, merge_content: &str) -> Result<String> {
@@ -80,11 +80,97 @@ pub fn ensure_runtime_defaults(runtime_config: &str) -> Result<String> {
         anyhow::bail!("Runtime config must be a YAML mapping");
     };
 
+    let proxy_names = read_proxy_names(runtime_map);
+    if !proxy_names.is_empty()
+        && !runtime_map.contains_key(Value::String("proxy-groups".to_string()))
+    {
+        runtime_map.insert(
+            Value::String("proxy-groups".to_string()),
+            build_default_proxy_groups(&proxy_names),
+        );
+    }
+
+    if !proxy_names.is_empty() && !runtime_map.contains_key(Value::String("rules".to_string())) {
+        runtime_map.insert(
+            Value::String("rules".to_string()),
+            Value::Sequence(vec![Value::String("MATCH,PROXY".to_string())]),
+        );
+    }
+
+    if !proxy_names.is_empty() && !runtime_map.contains_key(Value::String("mode".to_string())) {
+        runtime_map.insert(
+            Value::String("mode".to_string()),
+            Value::String("rule".to_string()),
+        );
+    }
+
     runtime_map
         .entry(Value::String("external-controller".to_string()))
         .or_insert(Value::String("127.0.0.1:9090".to_string()));
 
     Ok(serde_yaml::to_string(&runtime_yaml)?)
+}
+
+fn read_proxy_names(root: &Mapping) -> Vec<String> {
+    root.get(Value::String("proxies".to_string()))
+        .and_then(Value::as_sequence)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_mapping)
+        .filter_map(|proxy| {
+            proxy
+                .get(Value::String("name".to_string()))
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned)
+        })
+        .collect()
+}
+
+fn build_default_proxy_groups(proxy_names: &[String]) -> Value {
+    let proxies = proxy_names
+        .iter()
+        .cloned()
+        .map(Value::String)
+        .collect::<Vec<_>>();
+
+    let mut select = Mapping::new();
+    select.insert(
+        Value::String("name".to_string()),
+        Value::String("PROXY".to_string()),
+    );
+    select.insert(
+        Value::String("type".to_string()),
+        Value::String("select".to_string()),
+    );
+    select.insert(
+        Value::String("proxies".to_string()),
+        Value::Sequence(proxies.clone()),
+    );
+
+    let mut auto = Mapping::new();
+    auto.insert(
+        Value::String("name".to_string()),
+        Value::String("AUTO".to_string()),
+    );
+    auto.insert(
+        Value::String("type".to_string()),
+        Value::String("url-test".to_string()),
+    );
+    auto.insert(Value::String("proxies".to_string()), Value::Sequence(proxies));
+    auto.insert(
+        Value::String("url".to_string()),
+        Value::String("https://www.gstatic.com/generate_204".to_string()),
+    );
+    auto.insert(
+        Value::String("interval".to_string()),
+        Value::Number(300.into()),
+    );
+    auto.insert(
+        Value::String("tolerance".to_string()),
+        Value::Number(50.into()),
+    );
+
+    Value::Sequence(vec![Value::Mapping(select), Value::Mapping(auto)])
 }
 
 pub fn apply_dns_config(runtime_config: &str, dns_config: &str) -> Result<String> {
@@ -129,5 +215,28 @@ mod tests {
         let config = build_runtime_config("proxies: []\nrules:\n  - MATCH,DIRECT\n", &[]).unwrap();
 
         assert!(config.contains("external-controller: 127.0.0.1:9090"));
+    }
+
+    #[test]
+    fn runtime_config_injects_proxy_groups_for_plain_proxy_list() {
+        let config = build_runtime_config(
+            r#"
+mixed-port: 7890
+proxies:
+  - name: HK
+    type: ss
+    server: example.com
+    port: 443
+    cipher: aes-128-gcm
+    password: pass
+"#,
+            &[],
+        )
+        .unwrap();
+        let yaml: Value = serde_yaml::from_str(&config).unwrap();
+
+        assert_eq!(yaml["proxy-groups"][0]["name"].as_str().unwrap(), "PROXY");
+        assert_eq!(yaml["proxy-groups"][0]["proxies"][0].as_str().unwrap(), "HK");
+        assert_eq!(yaml["rules"][0].as_str().unwrap(), "MATCH,PROXY");
     }
 }
