@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
+  type AlertColor,
   Box,
   Card,
   CardContent,
@@ -8,22 +9,27 @@ import {
   Typography,
   Chip,
   Button,
+  FormControl,
+  IconButton,
+  InputLabel,
   LinearProgress,
   Alert,
   CircularProgress,
+  MenuItem,
+  Select,
   Snackbar,
+  Tooltip,
   useTheme,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
+import AccountTreeIcon from "@mui/icons-material/AccountTree";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import StopIcon from "@mui/icons-material/Stop";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import DownloadIcon from "@mui/icons-material/Download";
 import SpeedIcon from "@mui/icons-material/Speed";
-import StarIcon from "@mui/icons-material/Star";
-import StarBorderIcon from "@mui/icons-material/StarBorder";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
+import PublicIcon from "@mui/icons-material/Public";
+import NearMeIcon from "@mui/icons-material/NearMe";
 import {
   useStatus,
   useMode,
@@ -35,15 +41,16 @@ import {
 } from "../hooks/useApi";
 import { useTraffic, useMemory } from "../hooks/useStream";
 import {
+  getCurrentProxyTarget,
   getDelay,
-  getQuickControlGroups,
+  normalizeClashMode,
+  type ClashMode,
 } from "../features/proxies";
 import {
   useProxyGroups,
   useSelectProxy,
   useTestProxyDelay,
 } from "../hooks/useProxies";
-import { usePinnedProxyGroups } from "../hooks/usePinnedProxyGroups";
 import {
   getMihomoInstallStatus,
   installMihomo,
@@ -84,13 +91,36 @@ function formatUptime(secs: number): string {
 }
 
 const MODES = ["rule", "global", "direct"] as const;
-type Mode = (typeof MODES)[number];
+type Mode = ClashMode;
 
 const MODE_COLORS: Record<Mode, "primary" | "warning" | "success"> = {
   rule: "primary",
   global: "warning",
   direct: "success",
 };
+
+const MODE_ICONS: Record<Mode, ReactNode> = {
+  rule: <AccountTreeIcon fontSize="small" />,
+  global: <PublicIcon fontSize="small" />,
+  direct: <NearMeIcon fontSize="small" />,
+};
+
+const CURRENT_PROXY_RULE_GROUP_STORAGE_KEY = "clash-web-current-proxy-rule-group";
+
+type OverviewSnack = {
+  severity: AlertColor;
+  message: string;
+};
+
+function readStoredRuleGroup(): string {
+  if (typeof window === "undefined") return "";
+  return localStorage.getItem(CURRENT_PROXY_RULE_GROUP_STORAGE_KEY) ?? "";
+}
+
+function writeStoredRuleGroup(groupName: string) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(CURRENT_PROXY_RULE_GROUP_STORAGE_KEY, groupName);
+}
 
 function getDelayColor(delay: number): "success" | "warning" | "error" | "default" {
   if (delay < 0) return "default";
@@ -109,11 +139,11 @@ export default function OverviewPage() {
   const stopMihomo = useStopMihomo();
   const restartMihomo = useRestartMihomo();
   const { data: preferences } = usePreferences();
-  const { proxies, groups: proxyGroups, isLoading: proxiesLoading } = useProxyGroups();
+  const { proxies, isLoading: proxiesLoading } = useProxyGroups();
   const selectProxy = useSelectProxy();
   const testProxyDelay = useTestProxyDelay();
-  const { pinnedGroupNames, togglePinnedGroup } = usePinnedProxyGroups();
-  const [quickProxySnack, setQuickProxySnack] = useState<string | null>(null);
+  const [selectedRuleGroupName, setSelectedRuleGroupName] = useState(readStoredRuleGroup);
+  const [quickProxySnack, setQuickProxySnack] = useState<OverviewSnack | null>(null);
   const { traffic, history, status: trafficStreamStatus } = useTraffic();
   const { memory, history: memoryHistory, status: memoryStreamStatus } = useMemory();
   const { progress, actionError, actionPending, runDownloadAction } =
@@ -130,7 +160,7 @@ export default function OverviewPage() {
 
   const mihomoInstalled = installInfo?.installed ?? true;
   const activeProgress = isDownloadTaskActive(progress) ? progress : null;
-  const currentMode = (modeData?.mode || "rule") as Mode;
+  const currentMode = normalizeClashMode(modeData?.mode);
   const isRunning = status?.mihomo_running ?? false;
   const memUsed = memory.inuse;
   const memoryLimitFromHistory = memoryHistory.findLast((item) => item.oslimit > 0)?.oslimit ?? 0;
@@ -180,29 +210,25 @@ export default function OverviewPage() {
     ],
     [memoryHistory, memoryLabels, t, theme.palette.secondary.main]
   );
-  const quickProxyGroups = useMemo(
-    () => getQuickControlGroups(proxyGroups, pinnedGroupNames, 3),
-    [pinnedGroupNames, proxyGroups]
+  const currentProxyTarget = useMemo(
+    () => getCurrentProxyTarget(proxies, currentMode, selectedRuleGroupName),
+    [currentMode, proxies, selectedRuleGroupName]
   );
-  const quickActiveSelection = useMemo(() => {
-    const group = quickProxyGroups.find((item) => item.groupName === "GLOBAL") ?? quickProxyGroups[0];
-    if (!group?.now) return null;
-    const node = proxies[group.now];
-    return {
-      groupName: group.groupName,
-      groupType: group.type,
-      nodeName: group.now,
-      nodeType: node?.type,
-      delay: getDelay(node),
-    };
-  }, [proxies, quickProxyGroups]);
+  const currentProxyNode = currentProxyTarget.node;
+  const currentProxyDelayColor = getDelayColor(currentProxyTarget.nodeDelay);
   const pingGoogle = useMutation({
     mutationFn: (name: string) => pingGoogleWithProxy(name).then((response) => response.data),
     onSuccess: (result, name) => {
-      setQuickProxySnack(t("proxies.google_ping_success", { name, delay: result.delay }));
+      setQuickProxySnack({
+        severity: "success",
+        message: t("proxies.google_ping_success", { name, delay: result.delay }),
+      });
     },
     onError: (_, name) => {
-      setQuickProxySnack(t("proxies.google_ping_failed", { name }));
+      setQuickProxySnack({
+        severity: "error",
+        message: t("proxies.google_ping_failed", { name }),
+      });
     },
   });
   const overviewCards = useMemo(
@@ -247,10 +273,80 @@ export default function OverviewPage() {
     if (isRunning) stopMihomo.mutate();
     else startMihomo.mutate();
   };
-  const handleQuickProxyDelayTest = () => {
-    quickProxyGroups.forEach((group) => {
-      group.all.forEach((name) => testProxyDelay.mutate(name));
+  const handleProxyGroupChange = (groupName: string) => {
+    setSelectedRuleGroupName(groupName);
+    writeStoredRuleGroup(groupName);
+  };
+  const handleProxyNodeChange = (name: string) => {
+    if (!currentProxyTarget.groupName || currentMode === "direct") return;
+
+    selectProxy.mutate(
+      { group: currentProxyTarget.groupName, name },
+      {
+        onSuccess: () => {
+          setQuickProxySnack({
+            severity: "success",
+            message: t("proxies.switch_success", {
+              group: currentProxyTarget.groupName,
+              name,
+            }),
+          });
+        },
+        onError: () => {
+          setQuickProxySnack({
+            severity: "error",
+            message: t("proxies.switch_failed", {
+              group: currentProxyTarget.groupName,
+              name,
+            }),
+          });
+        },
+      }
+    );
+  };
+  const handleModeChange = (mode: Mode) => {
+    if (mode === currentMode) return;
+
+    setMode.mutate(mode, {
+      onSuccess: () => {
+        setQuickProxySnack({
+          severity: "success",
+          message: t("overview.mode_switch_success", {
+            mode: t(`overview.mode_${mode}`),
+          }),
+        });
+      },
+      onError: () => {
+        setQuickProxySnack({
+          severity: "error",
+          message: t("overview.mode_switch_failed", {
+            mode: t(`overview.mode_${mode}`),
+          }),
+        });
+      },
     });
+  };
+  const handleCurrentProxyDelayTest = () => {
+    if (!currentProxyTarget.nodeName || currentMode === "direct") return;
+
+    testProxyDelay.mutate(currentProxyTarget.nodeName, {
+      onSuccess: () => {
+        setQuickProxySnack({
+          severity: "success",
+          message: t("proxies.delay_test_success", { count: 1 }),
+        });
+      },
+      onError: () => {
+        setQuickProxySnack({
+          severity: "error",
+          message: t("proxies.google_ping_failed", { name: currentProxyTarget.nodeName }),
+        });
+      },
+    });
+  };
+  const handleCurrentProxyPing = () => {
+    if (!currentProxyTarget.nodeName || currentMode === "direct") return;
+    pingGoogle.mutate(currentProxyTarget.nodeName);
   };
   const getCardGridSx = (id: OverviewCardId) => ({
     display: isOverviewCardVisible(overviewCards, id) ? "flex" : "none",
@@ -462,33 +558,6 @@ export default function OverviewPage() {
 
               <Box
                 sx={{
-                  p: 1.5,
-                  border: 1,
-                  borderColor: "divider",
-                  borderRadius: 1.5,
-                  bgcolor: "background.default",
-                }}
-              >
-                <Typography variant="caption" color="text.secondary">
-                  {t("overview.mode")}
-                </Typography>
-                <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", mt: 1 }}>
-                  {MODES.map((mode) => (
-                    <Chip
-                      key={mode}
-                      label={t(`overview.mode_${mode}`)}
-                      variant={currentMode === mode ? "filled" : "outlined"}
-                      color={currentMode === mode ? MODE_COLORS[mode] : "default"}
-                      clickable
-                      onClick={() => setMode.mutate(mode)}
-                      disabled={setMode.isPending}
-                    />
-                  ))}
-                </Box>
-              </Box>
-
-              <Box
-                sx={{
                   mt: "auto",
                   pt: 1.5,
                   borderTop: 1,
@@ -548,33 +617,37 @@ export default function OverviewPage() {
               >
                 <Box>
                   <Typography variant="h6" gutterBottom sx={{ mb: 0.5 }}>
-                    {t("overview.quick_proxy_title")}
+                    {t("overview.current_proxy_title")}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {t("overview.quick_proxy_description")}
+                    {t("overview.current_proxy_description")}
                   </Typography>
                 </Box>
                 <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
-                  <Chip
-                    label={`${quickProxyGroups.length} / ${proxyGroups.length || 0}`}
-                    size="small"
-                    variant="outlined"
-                  />
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<SpeedIcon />}
-                    onClick={handleQuickProxyDelayTest}
-                    disabled={quickProxyGroups.length === 0 || testProxyDelay.isPending}
-                  >
-                    {t("overview.quick_proxy_test_all")}
-                  </Button>
+                  <Tooltip title={t("overview.current_proxy_test")}>
+                    <span>
+                      <IconButton
+                        onClick={handleCurrentProxyDelayTest}
+                        disabled={
+                          !currentProxyTarget.nodeName ||
+                          currentMode === "direct" ||
+                          testProxyDelay.isPending
+                        }
+                      >
+                        {testProxyDelay.isPending ? <CircularProgress size={20} /> : <SpeedIcon />}
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                   <Button
                     variant="contained"
                     size="small"
                     startIcon={pingGoogle.isPending ? <CircularProgress size={16} /> : <SpeedIcon />}
-                    onClick={() => quickActiveSelection && pingGoogle.mutate(quickActiveSelection.nodeName)}
-                    disabled={!quickActiveSelection || pingGoogle.isPending}
+                    onClick={handleCurrentProxyPing}
+                    disabled={
+                      !currentProxyTarget.nodeName ||
+                      currentMode === "direct" ||
+                      pingGoogle.isPending
+                    }
                   >
                     {pingGoogle.isPending ? t("proxies.google_pinging") : t("proxies.google_ping")}
                   </Button>
@@ -592,193 +665,281 @@ export default function OverviewPage() {
                 >
                   <CircularProgress size={28} />
                 </Box>
-              ) : quickProxyGroups.length === 0 ? (
-                <Alert severity="info">{t("overview.quick_proxy_empty")}</Alert>
+              ) : !currentProxyTarget.nodeName && currentMode !== "direct" ? (
+                <Alert severity="info">{t("overview.current_proxy_empty")}</Alert>
               ) : (
-                <>
+                <Grid container spacing={1.5}>
+                  <Grid size={{ xs: 12, md: 7 }}>
                   <Box
                     sx={{
-                      p: 1.5,
-                      border: 1,
-                      borderColor: "divider",
-                      borderRadius: 1.5,
-                      bgcolor: "background.default",
+                      ...metricPanelSx,
+                      height: "100%",
                       display: "flex",
-                      alignItems: { xs: "flex-start", md: "center" },
-                      justifyContent: "space-between",
+                      flexDirection: "column",
                       gap: 1.5,
-                      flexWrap: "wrap",
                     }}
                   >
-                    <Box sx={{ minWidth: 0 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        {t("overview.quick_proxy_active_selection")}
-                      </Typography>
-                      {quickActiveSelection ? (
-                        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.75, flexWrap: "wrap" }}>
-                          <Chip label={quickActiveSelection.groupName} color="primary" size="small" />
-                          <Typography variant="subtitle1" sx={{ fontWeight: 800, maxWidth: 360, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {quickActiveSelection.nodeName}
-                          </Typography>
-                          {quickActiveSelection.nodeType && <Chip label={quickActiveSelection.nodeType} size="small" variant="outlined" />}
-                          <Chip
-                            label={quickActiveSelection.delay >= 0 ? `${quickActiveSelection.delay}ms` : t("proxies.unavailable")}
-                            size="small"
-                            color={getDelayColor(quickActiveSelection.delay) === "default" ? undefined : getDelayColor(quickActiveSelection.delay)}
-                            variant={getDelayColor(quickActiveSelection.delay) === "default" ? "outlined" : "filled"}
-                          />
-                        </Box>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                          {t("proxies.no_active_selection")}
+                    <Box
+                      sx={(theme) => ({
+                        p: 1.5,
+                        borderRadius: 1.5,
+                        bgcolor: alpha(theme.palette.primary.main, 0.08),
+                        boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.18)}`,
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: { xs: "flex-start", sm: "center" },
+                        gap: 1.5,
+                        flexWrap: "wrap",
+                      })}
+                    >
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          {t("overview.current_proxy_selected")}
                         </Typography>
-                      )}
-                    </Box>
-                    <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 420 }}>
-                      {t("overview.quick_proxy_selection_help")}
-                    </Typography>
-                  </Box>
-
-                  <Grid container spacing={1.5}>
-                    {quickProxyGroups.map((group) => {
-                      const visibleNodes = group.all.slice(0, 8);
-                      const hiddenCount = Math.max(group.all.length - visibleNodes.length, 0);
-
-                      return (
-                      <Grid key={group.groupName} size={{ xs: 12, md: 4 }}>
-                        <Box
+                        <Typography
+                          variant="h6"
                           sx={{
-                            ...metricPanelSx,
-                            height: "100%",
-                            display: "flex",
-                            flexDirection: "column",
-                            gap: 1.25,
+                            mt: 0.25,
+                            maxWidth: { xs: "100%", md: 460 },
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
                           }}
                         >
-                          <Box
-                            sx={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              alignItems: "flex-start",
-                              gap: 1,
-                            }}
-                          >
-                            <Box sx={{ minWidth: 0 }}>
-                              <Box
-                                sx={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 1,
-                                  flexWrap: "wrap",
-                                }}
-                              >
-                                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                                  {group.groupName}
-                                </Typography>
-                                {pinnedGroupNames.includes(group.groupName) && (
-                                  <Chip
-                                    label={t("overview.quick_proxy_pinned")}
-                                    color="warning"
-                                    size="small"
-                                  />
-                                )}
-                                <Chip label={group.type} size="small" variant="outlined" />
-                              </Box>
-                              <Typography
-                                variant="body2"
-                                color="text.secondary"
-                                sx={{ mt: 0.5 }}
-                              >
-                                {t("overview.quick_proxy_current")}: {group.now ?? "—"}
-                              </Typography>
-                            </Box>
-                            <Button
-                              variant="text"
-                              size="small"
-                              startIcon={
-                                pinnedGroupNames.includes(group.groupName) ? (
-                                  <StarIcon />
-                                ) : (
-                                  <StarBorderIcon />
-                                )
-                              }
-                              color={pinnedGroupNames.includes(group.groupName) ? "warning" : "inherit"}
-                              onClick={() => togglePinnedGroup(group.groupName)}
-                            >
-                              {pinnedGroupNames.includes(group.groupName)
-                                ? t("overview.quick_proxy_unpin")
-                                : t("overview.quick_proxy_pin")}
-                            </Button>
-                            <Button
-                              variant="text"
-                              size="small"
-                              startIcon={<SpeedIcon />}
-                              onClick={() => {
-                                group.all.forEach((name) => testProxyDelay.mutate(name));
-                              }}
-                              disabled={testProxyDelay.isPending}
-                            >
-                              {t("overview.quick_proxy_test")}
-                            </Button>
-                          </Box>
+                          {currentProxyTarget.nodeName || "—"}
+                        </Typography>
+                        <Box sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mt: 0.75 }}>
+                          <Chip label={currentProxyTarget.groupName || "—"} size="small" color="primary" />
+                          {currentProxyNode?.type ? (
+                            <Chip label={currentProxyNode.type} size="small" variant="outlined" />
+                          ) : null}
+                          {currentProxyTarget.isChainSelection ? (
+                            <Chip label={t("overview.current_proxy_chain")} size="small" color="warning" />
+                          ) : null}
+                        </Box>
+                      </Box>
+                      {currentMode !== "direct" ? (
+                        <Chip
+                          label={
+                            currentProxyTarget.nodeDelay >= 0
+                              ? `${currentProxyTarget.nodeDelay}ms`
+                              : t("proxies.unavailable")
+                          }
+                          size="small"
+                          color={currentProxyDelayColor === "default" ? undefined : currentProxyDelayColor}
+                          variant={currentProxyDelayColor === "default" ? "outlined" : "filled"}
+                        />
+                      ) : (
+                        <Chip label={t("overview.mode_direct")} size="small" color="success" />
+                      )}
+                    </Box>
 
-                          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "repeat(2, minmax(0, 1fr))" }, gap: 1 }}>
-                            {visibleNodes.map((name) => {
-                              const delay = getDelay(proxies[name]);
-                              const isActive = name === group.now;
+                    <Grid container spacing={1.5}>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>{t("overview.current_proxy_group")}</InputLabel>
+                          <Select
+                            value={currentProxyTarget.groupName}
+                            label={t("overview.current_proxy_group")}
+                            onChange={(event) => handleProxyGroupChange(event.target.value)}
+                            disabled={currentProxyTarget.groupLocked || currentProxyTarget.groups.length === 0}
+                          >
+                            {currentMode === "direct" ? (
+                              <MenuItem value="DIRECT">DIRECT</MenuItem>
+                            ) : (
+                              (currentMode === "global" && currentProxyTarget.selectedGroup
+                                ? [currentProxyTarget.selectedGroup]
+                                : currentProxyTarget.groups
+                              ).map((group) => (
+                                <MenuItem key={group.groupName} value={group.groupName}>
+                                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+                                    <Typography sx={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                                      {group.groupName}
+                                    </Typography>
+                                    <Chip label={group.type} size="small" variant="outlined" />
+                                  </Box>
+                                </MenuItem>
+                              ))
+                            )}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <FormControl fullWidth size="small">
+                          <InputLabel>{t("overview.current_proxy_node")}</InputLabel>
+                          <Select
+                            value={currentProxyTarget.nodeName}
+                            label={t("overview.current_proxy_node")}
+                            onChange={(event) => handleProxyNodeChange(event.target.value)}
+                            disabled={
+                              currentMode === "direct" ||
+                              !currentProxyTarget.groupName ||
+                              currentProxyTarget.nodeOptions.length === 0 ||
+                              selectProxy.isPending
+                            }
+                            renderValue={(selected) => {
+                              const selectedName = String(selected);
+                              const delay = getDelay(proxies[selectedName]);
                               const delayColor = getDelayColor(delay);
 
                               return (
-                                <Button
-                                  key={`${group.groupName}-${name}`}
-                                  variant="outlined"
-                                  onClick={() =>
-                                    selectProxy.mutate({ group: group.groupName, name })
-                                  }
-                                  disabled={selectProxy.isPending}
-                                  sx={(theme) => ({
-                                    minHeight: 56,
-                                    justifyContent: "flex-start",
-                                    textAlign: "left",
-                                    borderRadius: 1.5,
-                                    p: 1,
-                                    borderColor: isActive ? alpha(theme.palette.primary.main, 0.78) : "divider",
-                                    bgcolor: isActive ? alpha(theme.palette.primary.main, 0.14) : alpha(theme.palette.background.paper, 0.36),
-                                    color: "text.primary",
-                                  })}
-                                >
-                                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, width: "100%", minWidth: 0 }}>
-                                    {isActive ? <CheckCircleIcon fontSize="small" color="primary" /> : <RadioButtonUncheckedIcon fontSize="small" color="disabled" />}
-                                    <Box sx={{ minWidth: 0, flex: 1 }}>
-                                      <Typography variant="caption" sx={{ display: "block", fontWeight: 800, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1, minWidth: 0 }}>
+                                  <Typography sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                                    {selectedName}
+                                  </Typography>
+                                  {currentMode !== "direct" ? (
+                                    <Chip
+                                      label={delay >= 0 ? `${delay}ms` : t("proxies.unavailable")}
+                                      size="small"
+                                      color={delayColor === "default" ? undefined : delayColor}
+                                      variant={delayColor === "default" ? "outlined" : "filled"}
+                                      sx={{ height: 22, flexShrink: 0 }}
+                                    />
+                                  ) : null}
+                                </Box>
+                              );
+                            }}
+                          >
+                            {currentProxyTarget.nodeOptions.map((name) => {
+                              const node = proxies[name];
+                              const delay = getDelay(node);
+                              const delayColor = getDelayColor(delay);
+
+                              return (
+                                <MenuItem key={name} value={name}>
+                                  <Box
+                                    sx={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      gap: 1,
+                                      width: "100%",
+                                      minWidth: 0,
+                                    }}
+                                  >
+                                    <Box sx={{ minWidth: 0 }}>
+                                      <Typography sx={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                         {name}
                                       </Typography>
-                                      <Chip
-                                        label={delay >= 0 ? `${delay}ms` : t("proxies.unavailable")}
-                                        size="small"
-                                        color={delayColor === "default" ? undefined : delayColor}
-                                        variant={delayColor === "default" ? "outlined" : "filled"}
-                                        sx={{ height: 18, mt: 0.5 }}
-                                      />
+                                      {node?.type ? (
+                                        <Typography variant="caption" color="text.secondary">
+                                          {node.type}
+                                        </Typography>
+                                      ) : null}
                                     </Box>
+                                    <Chip
+                                      label={delay >= 0 ? `${delay}ms` : t("proxies.unavailable")}
+                                      size="small"
+                                      color={delayColor === "default" ? undefined : delayColor}
+                                      variant={delayColor === "default" ? "outlined" : "filled"}
+                                      sx={{ height: 22, flexShrink: 0 }}
+                                    />
                                   </Box>
-                                </Button>
+                                </MenuItem>
                               );
                             })}
-                            {hiddenCount > 0 && (
-                              <Chip
-                                label={t("overview.quick_proxy_more", { count: hiddenCount })}
-                                size="small"
-                                variant="outlined"
-                              />
-                            )}
-                          </Box>
-                        </Box>
+                          </Select>
+                        </FormControl>
                       </Grid>
-                      );
-                    })}
+                    </Grid>
+
+                    {currentProxyTarget.isChainSelection ? (
+                      <Alert severity="warning" sx={{ py: 0.5 }}>
+                        {t("overview.current_proxy_chain_hint", {
+                          group: currentProxyTarget.chainTarget?.groupName ?? currentProxyTarget.nodeName,
+                        })}
+                      </Alert>
+                    ) : null}
+                  </Box>
                   </Grid>
-                </>
+
+                  <Grid size={{ xs: 12, md: 5 }}>
+                    <Box
+                      sx={{
+                        ...metricPanelSx,
+                        height: "100%",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 1.5,
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          {t("overview.mode")}
+                        </Typography>
+                        <Box
+                          sx={{
+                            display: "grid",
+                            gridTemplateColumns: { xs: "1fr", sm: "repeat(3, minmax(0, 1fr))", md: "1fr" },
+                            gap: 1,
+                            mt: 1,
+                          }}
+                        >
+                          {MODES.map((mode) => {
+                            const active = currentMode === mode;
+                            return (
+                              <Button
+                                key={mode}
+                                variant={active ? "contained" : "outlined"}
+                                color={active ? MODE_COLORS[mode] : "inherit"}
+                                startIcon={MODE_ICONS[mode]}
+                                onClick={() => handleModeChange(mode)}
+                                disabled={setMode.isPending}
+                                sx={{
+                                  minHeight: 52,
+                                  display: "flex",
+                                  justifyContent: "flex-start",
+                                  alignItems: "center",
+                                  gap: 1,
+                                  borderRadius: 1.5,
+                                  textTransform: "none",
+                                  transitionProperty: "transform, box-shadow, background-color, border-color",
+                                  "&:active": { transform: "scale(0.96)" },
+                                }}
+                              >
+                                <Box sx={{ textAlign: "left", minWidth: 0 }}>
+                                  <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                    {t(`overview.mode_${mode}`)}
+                                  </Typography>
+                                  <Typography variant="caption" sx={{ opacity: active ? 0.88 : 0.72 }}>
+                                    {t(`overview.mode_${mode}_description`)}
+                                  </Typography>
+                                </Box>
+                              </Button>
+                            );
+                          })}
+                        </Box>
+                      </Box>
+
+                      <Box
+                        sx={(theme) => ({
+                          mt: "auto",
+                          p: 1.5,
+                          borderRadius: 1.5,
+                          bgcolor: alpha(theme.palette.background.paper, 0.58),
+                          boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.divider, 0.75)}`,
+                        })}
+                      >
+                        <Typography variant="caption" color="text.secondary">
+                          {t("overview.current_proxy_effective")}
+                        </Typography>
+                        <Typography variant="body2" sx={{ mt: 0.75 }}>
+                          {t(
+                            currentMode === "direct"
+                              ? "overview.current_proxy_effect_direct"
+                              : currentMode === "global"
+                                ? "overview.current_proxy_effect_global"
+                                : "overview.current_proxy_effect_rule",
+                            {
+                              group: currentProxyTarget.groupName || "—",
+                              node: currentProxyTarget.nodeName || "—",
+                            }
+                          )}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Grid>
+                </Grid>
               )}
             </CardContent>
           </Card>
@@ -955,8 +1116,8 @@ export default function OverviewPage() {
         onClose={() => setQuickProxySnack(null)}
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
-        <Alert severity="info" onClose={() => setQuickProxySnack(null)}>
-          {quickProxySnack}
+        <Alert severity={quickProxySnack?.severity ?? "info"} onClose={() => setQuickProxySnack(null)}>
+          {quickProxySnack?.message}
         </Alert>
       </Snackbar>
     </Box>

@@ -258,29 +258,7 @@ export default function ProxiesPage() {
 
   return (
     <Box>
-      <PageTitle
-        title={t("proxies.title")}
-        actions={
-          <Box sx={{ display: "flex", gap: 1 }}>
-            {!isProvidersTab && (
-              <Tooltip title={t("proxies.delay_test_all")}>
-                <span>
-                  <IconButton onClick={() => void handleTestAll()} disabled={isTestingAll}>
-                    {isTestingAll ? <CircularProgress size={20} /> : <SpeedIcon />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-            )}
-            <Tooltip title={t("proxies.refresh")}>
-              <span>
-                <IconButton onClick={() => void refetch()} disabled={isFetching}>
-                  {isFetching ? <CircularProgress size={20} /> : <RefreshIcon />}
-                </IconButton>
-              </span>
-            </Tooltip>
-          </Box>
-        }
-      />
+      <PageTitle title={t("proxies.title")} />
 
       <Box
         sx={(theme) => ({
@@ -342,6 +320,40 @@ export default function ProxiesPage() {
             </Select>
           </FormControl>
         )}
+        <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+          {!isProvidersTab && (
+            <Tooltip title={t("proxies.delay_test_all")}>
+              <span>
+                <IconButton
+                  onClick={() => void handleTestAll()}
+                  disabled={isTestingAll}
+                  sx={(theme) => ({
+                    border: 1,
+                    borderColor: "divider",
+                    bgcolor: alpha(theme.palette.background.paper, 0.56),
+                  })}
+                >
+                  {isTestingAll ? <CircularProgress size={20} /> : <SpeedIcon />}
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+          <Tooltip title={t("proxies.refresh")}>
+            <span>
+              <IconButton
+                onClick={() => void refetch()}
+                disabled={isFetching}
+                sx={(theme) => ({
+                  border: 1,
+                  borderColor: "divider",
+                  bgcolor: alpha(theme.palette.background.paper, 0.56),
+                })}
+              >
+                {isFetching ? <CircularProgress size={20} /> : <RefreshIcon />}
+              </IconButton>
+            </span>
+          </Tooltip>
+        </Box>
         {!isProvidersTab && (
           <Button
             variant="outlined"
