@@ -7,3 +7,67 @@ body {
 #root {
   height: 100vh;
 }
+
+#root::before,
+#root::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+#root::before {
+  z-index: 0;
+  opacity: 0.58;
+  background-image:
+    radial-gradient(circle at 12% 24%, rgba(255, 255, 255, 0.55) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 68% 18%, rgba(93, 242, 255, 0.5) 0 1px, transparent 1.8px),
+    radial-gradient(circle at 84% 72%, rgba(255, 209, 102, 0.45) 0 1px, transparent 1.6px),
+    radial-gradient(circle at 28% 82%, rgba(183, 156, 255, 0.5) 0 1px, transparent 1.8px);
+  background-size: 220px 220px, 280px 280px, 260px 260px, 320px 320px;
+  animation: star-drift 36s linear infinite;
+}
+
+#root::after {
+  z-index: 2;
+  opacity: 0.11;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.18) 0 1px, transparent 1px 4px),
+    linear-gradient(90deg, transparent, rgba(93, 242, 255, 0.3), transparent);
+  background-size: 100% 4px, 360px 100%;
+  background-position: 0 0, -360px 0;
+  animation: scan-pass 9s cubic-bezier(0.2, 0, 0, 1) infinite;
+}
+
+#root > * {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes star-drift {
+  from {
+    background-position: 0 0, 0 0, 0 0, 0 0;
+  }
+
+  to {
+    background-position: 220px 120px, -280px 160px, 260px -140px, -320px -180px;
+  }
+}
+
+@keyframes scan-pass {
+  0%,
+  72% {
+    background-position: 0 0, -360px 0;
+  }
+
+  100% {
+    background-position: 0 0, calc(100vw + 360px) 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #root::before,
+  #root::after {
+    animation: none;
+  }
+}

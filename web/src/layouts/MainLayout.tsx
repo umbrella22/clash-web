@@ -79,38 +79,70 @@ export default function MainLayout({ children }: MainLayoutProps) {
       : "error.main";
 
   const drawer = (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column", position: "relative" }}>
+    <Box
+      sx={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
       <Box
         sx={{
           position: "absolute",
           inset: 0,
           pointerEvents: "none",
-          opacity: 0.35,
-          backgroundImage:
-            `linear-gradient(${alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.03)} 1px, transparent 1px), linear-gradient(90deg, ${alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.08 : 0.03)} 1px, transparent 1px)`,
-          backgroundSize: "36px 36px",
+          opacity: theme.palette.mode === "dark" ? 0.5 : 0.34,
+          backgroundImage: [
+            `linear-gradient(${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.08)} 1px, transparent 1px)`,
+            `linear-gradient(90deg, ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.12 : 0.08)} 1px, transparent 1px)`,
+            `radial-gradient(circle at 50% 18%, ${alpha(theme.palette.secondary.main, 0.22)}, transparent 44%)`,
+          ].join(", "),
+          backgroundSize: "32px 32px, 32px 32px, 100% 100%",
           maskImage: "linear-gradient(to bottom, black 50%, transparent 100%)",
+        }}
+      />
+      <Box
+        sx={{
+          position: "absolute",
+          right: -70,
+          top: 86,
+          width: 160,
+          height: 160,
+          borderRadius: "50%",
+          pointerEvents: "none",
+          opacity: 0.34,
+          background: `radial-gradient(circle, transparent 48%, ${alpha(theme.palette.primary.main, 0.5)} 49% 50%, transparent 51%),
+            repeating-conic-gradient(from 0deg, ${alpha(theme.palette.primary.main, 0.42)} 0deg 6deg, transparent 6deg 18deg)`,
+          filter: "drop-shadow(0 0 22px rgba(93, 242, 255, 0.22))",
         }}
       />
       <Box
         sx={{
           px: 3,
           py: 3,
-          borderBottom: 1,
-          borderColor: "divider",
+          boxShadow: `inset 0 -1px 0 ${theme.palette.divider}`,
+          position: "relative",
+          zIndex: 1,
         }}
       >
         <Typography
           sx={{
-            fontFamily: '"Courier New", monospace',
+            fontFamily: '"JetBrains Mono", "Courier New", monospace',
             fontSize: 30,
             fontWeight: 900,
-            letterSpacing: "-0.04em",
+            letterSpacing: 0,
             lineHeight: 1,
             position: "relative",
             display: "inline-flex",
             alignItems: "flex-start",
             gap: 1,
+            color: "text.primary",
+            textShadow: (theme) =>
+              theme.palette.mode === "dark"
+                ? `0 0 18px ${alpha(theme.palette.primary.main, 0.32)}`
+                : "none",
           }}
         >
           Clash
@@ -121,8 +153,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
               height: 7,
               mt: 0.5,
               borderRadius: "50%",
-              bgcolor: "success.main",
-              boxShadow: (theme) => `0 0 10px ${theme.palette.success.main}`,
+              bgcolor: isProxyConnected ? "success.main" : "error.main",
+              boxShadow: (theme) =>
+                `0 0 12px ${isProxyConnected ? theme.palette.success.main : theme.palette.error.main}`,
             }}
           />
         </Typography>
@@ -133,6 +166,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
             letterSpacing: "0.32em",
             textTransform: "uppercase",
             color: "text.secondary",
+            fontFamily: '"JetBrains Mono", "Courier New", monospace',
           }}
         >
           Web Control Terminal
@@ -154,16 +188,23 @@ export default function MainLayout({ children }: MainLayoutProps) {
                 mb: 0.5,
                 alignItems: "center",
                 color: "text.secondary",
-                transition: "all 0.2s ease",
+                transitionProperty: "transform, color, background-color, box-shadow",
+                transitionDuration: "180ms",
+                transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
+                boxShadow: "inset 0 0 0 1px transparent",
                 "&:hover": {
                   color: "text.primary",
                   transform: "translateX(4px)",
-                  backgroundColor: "action.hover",
+                  backgroundColor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.08 : 0.07),
+                  boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.16)}`,
                 },
                 "&.Mui-selected": {
                   color: "text.primary",
-                  background:
-                    `linear-gradient(90deg, ${alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.12 : 0.06)}, transparent)`,
+                  background: [
+                    `linear-gradient(90deg, ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.22 : 0.14)}, transparent)`,
+                    `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)}, ${alpha(theme.palette.secondary.main, 0.06)})`,
+                  ].join(", "),
+                  boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.24)}, 0 0 22px ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.06)}`,
                 },
                 "&.Mui-selected::before": {
                   content: '""',
@@ -173,7 +214,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
                   bottom: 0,
                   width: 3,
                   borderRadius: 999,
-                  backgroundColor: "text.primary",
+                  background: `linear-gradient(180deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
+                  boxShadow: `0 0 14px ${alpha(theme.palette.primary.main, 0.7)}`,
                 },
               }}
             >
@@ -220,6 +262,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
           color: "text.secondary",
           position: "relative",
           zIndex: 1,
+          background: `linear-gradient(180deg, transparent, ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.06 : 0.04)})`,
         }}
       >
         <Typography sx={{ fontSize: 10, letterSpacing: "0.22em", textTransform: "uppercase", mb: 1 }}>
@@ -252,12 +295,22 @@ export default function MainLayout({ children }: MainLayoutProps) {
             </Typography>
           </Box>
         </Box>
-        <Box sx={{ height: 2, bgcolor: "action.hover", overflow: "hidden", position: "relative" }}>
+        <Box
+          sx={{
+            height: 4,
+            borderRadius: 999,
+            bgcolor: alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.08 : 0.1),
+            overflow: "hidden",
+            position: "relative",
+            boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.14)}`,
+          }}
+        >
           <Box
             sx={{
               position: "absolute",
               inset: 0,
-              bgcolor: statusColor,
+              background: (theme) =>
+                `linear-gradient(90deg, transparent, ${downloadStatusActive ? theme.palette.info.main : isProxyConnected ? theme.palette.success.main : theme.palette.error.main}, transparent)`,
               animation: downloadStatusActive || isProxyConnected ? "nav-loader 2s ease-in-out infinite" : "none",
               transform: downloadStatusActive || isProxyConnected ? "translateX(-100%)" : "translateX(0)",
               opacity: isProxyConnected ? 1 : 0.72,
@@ -292,7 +345,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
             border: 1,
             borderColor: "divider",
             bgcolor: "background.paper",
-            backdropFilter: "blur(16px)",
+            backdropFilter: "blur(18px) saturate(150%)",
+            boxShadow: (theme) => `0 0 0 1px ${alpha(theme.palette.primary.main, 0.16)}, 0 16px 34px rgba(0, 0, 0, 0.28)`,
           }}
         >
           <MenuIcon />
@@ -358,14 +412,25 @@ export default function MainLayout({ children }: MainLayoutProps) {
             position: "absolute",
             inset: 0,
             pointerEvents: "none",
-            opacity: 0.28,
-            backgroundImage:
-              `linear-gradient(${alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.06 : 0.025)} 1px, transparent 1px), linear-gradient(90deg, ${alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.06 : 0.025)} 1px, transparent 1px)`,
-            backgroundSize: { xs: "28px 28px", md: "40px 40px" },
+            opacity: theme.palette.mode === "dark" ? 0.36 : 0.24,
+            backgroundImage: [
+              `linear-gradient(${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.06)} 1px, transparent 1px)`,
+              `linear-gradient(90deg, ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.06)} 1px, transparent 1px)`,
+              `linear-gradient(135deg, transparent 0 48%, ${alpha(theme.palette.warning.main, 0.12)} 49% 50%, transparent 51%)`,
+            ].join(", "),
+            backgroundSize: { xs: "28px 28px, 28px 28px, 120px 120px", md: "42px 42px, 42px 42px, 180px 180px" },
             maskImage: "linear-gradient(to bottom, black 30%, transparent 100%)",
           }}
         />
-        {children}
+        <Box
+          sx={{
+            position: "relative",
+            zIndex: 1,
+            minHeight: "100%",
+          }}
+        >
+          {children}
+        </Box>
       </Box>
     </Box>
   );

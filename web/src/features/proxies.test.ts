@@ -3,6 +3,8 @@ import {
   buildProxyGroups,
   filterGroupProxyNames,
   filterProviders,
+  getCurrentProxyTarget,
+  getPrimaryRuleProxyGroup,
   getQuickControlGroups,
   sortProxyGroupsByPinned,
   sortProxyNames,
@@ -101,6 +103,51 @@ describe("proxy helpers", () => {
       "GLOBAL",
       "FINAL",
     ]);
+  });
+
+  it("resolves current node control from the active clash mode", () => {
+    const ruleTarget = getCurrentProxyTarget(proxies, "rule", "FINAL");
+    expect(ruleTarget.groupName).toBe("FINAL");
+    expect(ruleTarget.groupLocked).toBe(false);
+    expect(ruleTarget.nodeName).toBe("Alpha");
+    expect(ruleTarget.nodeOptions).toEqual(["DIRECT", "Alpha"]);
+
+    const globalTarget = getCurrentProxyTarget(proxies, "global");
+    expect(globalTarget.groupName).toBe("GLOBAL");
+    expect(globalTarget.groupLocked).toBe(true);
+    expect(globalTarget.nodeName).toBe("Bravo");
+    expect(globalTarget.nodeOptions).toEqual(["Alpha", "Bravo", "Offline"]);
+
+    const directTarget = getCurrentProxyTarget(proxies, "direct");
+    expect(directTarget.groupName).toBe("DIRECT");
+    expect(directTarget.nodeName).toBe("DIRECT");
+    expect(directTarget.nodeOptions).toEqual(["DIRECT"]);
+  });
+
+  it("prefers rule selector groups and detects chained group selections", () => {
+    const chainedProxies: Record<string, ProxyItem> = {
+      ...proxies,
+      "Node Selector": {
+        name: "Node Selector",
+        type: "Selector",
+        all: ["Relay Chain", "Alpha"],
+        now: "Relay Chain",
+      },
+      "Relay Chain": {
+        name: "Relay Chain",
+        type: "Relay",
+        all: ["Alpha", "Bravo"],
+        now: "Alpha",
+      },
+    };
+    const groups = buildProxyGroups(chainedProxies);
+
+    expect(getPrimaryRuleProxyGroup(groups)?.groupName).toBe("Node Selector");
+
+    const target = getCurrentProxyTarget(chainedProxies, "rule", "Node Selector");
+    expect(target.nodeName).toBe("Relay Chain");
+    expect(target.isChainSelection).toBe(true);
+    expect(target.chainTarget?.groupName).toBe("Relay Chain");
   });
 
   it("keeps pinned groups first for proxy page sorting and overview quick control", () => {

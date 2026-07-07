@@ -168,10 +168,10 @@ export default function LoginPage() {
         ? "success.main"
         : "text.secondary";
   const isDark = theme.palette.mode === "dark";
-  const heroPrimary = isDark ? theme.palette.text.primary : "#1a1a1a";
-  const heroMuted = isDark ? theme.palette.text.secondary : "#666";
-  const heroLine = isDark ? alpha(theme.palette.text.primary, 0.72) : "#333";
-  const heroAccent = theme.palette.success.main;
+  const heroPrimary = isDark ? "#e9fbff" : "#0b1721";
+  const heroMuted = isDark ? "#91aec2" : "#486173";
+  const heroLine = isDark ? alpha(theme.palette.primary.main, 0.82) : alpha(theme.palette.primary.main, 0.72);
+  const heroAccent = theme.palette.primary.main;
 
   const startLoadingCounter = () => {
     if (loadingIntervalRef.current !== null) {
@@ -262,7 +262,7 @@ export default function LoginPage() {
     <Box
       sx={{
         "--bg-start": isDark ? "#111821" : "#e8ecf3",
-        "--bg-end": isDark ? "#0b1016" : "#d4dceb",
+        "--bg-end": isDark ? "#030712" : "#d4dceb",
         "--primary": heroPrimary,
         minHeight: "100vh",
         display: "flex",
@@ -271,10 +271,18 @@ export default function LoginPage() {
         justifyContent: "center",
         px: { xs: 2, md: 4 },
         py: 4,
-        background: "linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%)",
+        backgroundImage: [
+          isDark
+            ? "radial-gradient(circle at 18% 18%, rgba(93, 242, 255, 0.18) 0, transparent 30%)"
+            : "radial-gradient(circle at 18% 18%, rgba(0, 123, 143, 0.2) 0, transparent 30%)",
+          isDark
+            ? "radial-gradient(circle at 78% 72%, rgba(183, 156, 255, 0.16) 0, transparent 28%)"
+            : "radial-gradient(circle at 78% 72%, rgba(103, 87, 216, 0.12) 0, transparent 28%)",
+          "linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%)",
+        ].join(", "),
         overflow: "hidden",
         width: "100%",
-        fontFamily: '"Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        fontFamily: '"Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
       }}
     >
       <Box
@@ -284,16 +292,20 @@ export default function LoginPage() {
           aspectRatio: "16 / 9",
           maxHeight: "calc(100vh - 32px)",
           background: isDark
-            ? alpha(theme.palette.background.paper, 0.92)
-            : "rgba(255, 255, 255, 0.65)",
-          borderRadius: "4px",
+            ? "linear-gradient(145deg, rgba(8, 18, 31, 0.8), rgba(8, 18, 31, 0.58))"
+            : "linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(246, 253, 255, 0.62))",
+          borderRadius: "8px",
+          border: `1px solid ${alpha(theme.palette.primary.main, isDark ? 0.24 : 0.18)}`,
+          backdropFilter: "blur(24px) saturate(150%)",
+          WebkitBackdropFilter: "blur(24px) saturate(150%)",
           boxShadow: isDark
-            ? "0 30px 60px rgba(0, 0, 0, 0.32)"
-            : "0 30px 60px rgba(0, 0, 0, 0.1)",
+            ? `0 32px 70px rgba(0, 0, 0, 0.42), 0 0 36px ${alpha(theme.palette.primary.main, 0.12)}`
+            : "0 30px 60px rgba(31, 77, 92, 0.16)",
           overflow: "hidden",
           opacity: active ? 1 : 0,
           transform: "translate3d(0, 0, 0)",
-          transition: "opacity 0.5s",
+          transitionProperty: "opacity",
+          transitionDuration: "500ms",
         }}
       >
         <Box
@@ -376,7 +388,7 @@ export default function LoginPage() {
               sx={{
                 opacity: 0,
                 transformOrigin: "center",
-                fontFamily: '"Cinzel", serif',
+                fontFamily: '"JetBrains Mono", "Courier New", monospace',
                 fontSize: 72,
                 fontWeight: 900,
                 fill: heroPrimary,
@@ -384,7 +396,7 @@ export default function LoginPage() {
                 animationDelay: "1s",
               }}
             >
-              PRTS
+              CLASH
             </Box>
             <Box
               component="text"
@@ -394,7 +406,7 @@ export default function LoginPage() {
               sx={{
                 opacity: 0,
                 transform: "translateY(10px)",
-                fontFamily: '"Lato", sans-serif',
+                fontFamily: '"JetBrains Mono", "Courier New", monospace',
                 fontSize: 12,
                 letterSpacing: 3,
                 fill: heroMuted,
@@ -403,7 +415,7 @@ export default function LoginPage() {
                 animationDelay: "1.2s",
               }}
             >
-              PRIMITIVE RHODES ISLAND
+              ORBITAL RELAY CONTROL
             </Box>
             <Box
               component="line"
@@ -428,7 +440,7 @@ export default function LoginPage() {
               sx={{
                 opacity: 0,
                 transform: "translateY(10px)",
-                fontFamily: '"Courier New", monospace',
+                fontFamily: '"JetBrains Mono", "Courier New", monospace',
                 fontSize: 22,
                 fontWeight: "bold",
                 fill: heroPrimary,
@@ -490,7 +502,7 @@ export default function LoginPage() {
               sx={{
                 opacity: 0,
                 transform: "translateY(10px)",
-                fontFamily: '"Lato", sans-serif',
+                fontFamily: '"JetBrains Mono", "Courier New", monospace',
                 fontSize: 11,
                 fontWeight: "bold",
                 letterSpacing: 1,
@@ -514,7 +526,8 @@ export default function LoginPage() {
                 strokeDasharray: 600,
                 strokeDashoffset: 600,
                 opacity: 0,
-                transition: "stroke 0.3s",
+                transitionProperty: "stroke",
+                transitionDuration: "300ms",
                 animation: active
                   ? `${drawRect} 1s cubic-bezier(0.22, 1, 0.36, 1) forwards`
                   : "none",
@@ -529,7 +542,7 @@ export default function LoginPage() {
               sx={{
                 opacity: 0,
                 transform: "translateY(10px)",
-                fontFamily: '"Lato", sans-serif',
+                fontFamily: '"JetBrains Mono", "Courier New", monospace',
                 fontSize: 10,
                 fill: heroMuted,
                 animation: active ? `${fadeUp} 0.6s ease-out forwards` : "none",
@@ -544,7 +557,10 @@ export default function LoginPage() {
             style={{
               opacity: isLoadingActive ? 1 : 0,
               pointerEvents: "none",
-              transition: "opacity 0.5s ease 0.5s",
+              transitionProperty: "opacity",
+              transitionDuration: "500ms",
+              transitionTimingFunction: "ease",
+              transitionDelay: "500ms",
             }}
             transform="translate(400, 225)"
           >
