@@ -18,25 +18,24 @@ body {
 
 #root::before {
   z-index: 0;
-  opacity: 0.58;
+  opacity: 0.42;
   background-image:
-    radial-gradient(circle at 12% 24%, rgba(255, 255, 255, 0.55) 0 1px, transparent 1.6px),
-    radial-gradient(circle at 68% 18%, rgba(93, 242, 255, 0.5) 0 1px, transparent 1.8px),
-    radial-gradient(circle at 84% 72%, rgba(255, 209, 102, 0.45) 0 1px, transparent 1.6px),
-    radial-gradient(circle at 28% 82%, rgba(183, 156, 255, 0.5) 0 1px, transparent 1.8px);
-  background-size: 220px 220px, 280px 280px, 260px 260px, 320px 320px;
-  animation: star-drift 36s linear infinite;
+    linear-gradient(rgba(255, 255, 255, 0.034) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.034) 1px, transparent 1px),
+    radial-gradient(circle at 12% 22%, rgba(255, 255, 255, 0.5) 0 1px, transparent 1.7px),
+    radial-gradient(circle at 86% 76%, rgba(255, 77, 97, 0.75) 0 1px, transparent 1.8px);
+  background-size: 64px 64px, 64px 64px, 290px 290px, 390px 390px;
+  mask-image: linear-gradient(to bottom, black, transparent 86%);
 }
 
 #root::after {
   z-index: 2;
-  opacity: 0.11;
-  background-image:
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.18) 0 1px, transparent 1px 4px),
-    linear-gradient(90deg, transparent, rgba(93, 242, 255, 0.3), transparent);
-  background-size: 100% 4px, 360px 100%;
-  background-position: 0 0, -360px 0;
-  animation: scan-pass 9s cubic-bezier(0.2, 0, 0, 1) infinite;
+  opacity: 0.18;
+  background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  background-size: 32% 100%;
+  background-position: -36% 0;
+  background-repeat: no-repeat;
+  animation: signal-sweep 14s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
 }
 
 #root > * {
@@ -44,30 +43,29 @@ body {
   z-index: 1;
 }
 
-@keyframes star-drift {
-  from {
-    background-position: 0 0, 0 0, 0 0, 0 0;
-  }
-
-  to {
-    background-position: 220px 120px, -280px 160px, 260px -140px, -320px -180px;
-  }
-}
-
-@keyframes scan-pass {
-  0%,
-  72% {
-    background-position: 0 0, -360px 0;
+@keyframes signal-sweep {
+  0%, 64% {
+    background-position: -36% 0;
   }
 
   100% {
-    background-position: 0 0, calc(100vw + 360px) 0;
+    background-position: 136% 0;
   }
 }
 
+[data-clash-theme="light"] #root::before {
+    opacity: 0.58;
+    background-image:
+      linear-gradient(rgba(23, 23, 25, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(23, 23, 25, 0.045) 1px, transparent 1px),
+      radial-gradient(circle at 12% 22%, rgba(23, 23, 25, 0.34) 0 1px, transparent 1.7px),
+      radial-gradient(circle at 86% 76%, rgba(207, 49, 72, 0.62) 0 1px, transparent 1.8px);
+  }
+
 @media (prefers-reduced-motion: reduce) {
-  #root::before,
-  #root::after {
-    animation: none;
+  #root::after,
+  .signal-assembly__orbit,
+  .signal-assembly__marker {
+    animation: none !important;
   }
 }

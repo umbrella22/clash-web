@@ -168,8 +168,8 @@ export default function LoginPage() {
         ? "success.main"
         : "text.secondary";
   const isDark = theme.palette.mode === "dark";
-  const heroPrimary = isDark ? "#e9fbff" : "#0b1721";
-  const heroMuted = isDark ? "#91aec2" : "#486173";
+  const heroPrimary = isDark ? "#f2f1ec" : "#171719";
+  const heroMuted = isDark ? "#9b9a96" : "#66645f";
   const heroLine = isDark ? alpha(theme.palette.primary.main, 0.82) : alpha(theme.palette.primary.main, 0.72);
   const heroAccent = theme.palette.primary.main;
 
@@ -261,8 +261,8 @@ export default function LoginPage() {
   return (
     <Box
       sx={{
-        "--bg-start": isDark ? "#111821" : "#e8ecf3",
-        "--bg-end": isDark ? "#030712" : "#d4dceb",
+        "--bg-start": isDark ? "#161619" : "#f5f2ec",
+        "--bg-end": isDark ? "#070708" : "#dfdcd5",
         "--primary": heroPrimary,
         minHeight: "100vh",
         display: "flex",
@@ -273,11 +273,11 @@ export default function LoginPage() {
         py: 4,
         backgroundImage: [
           isDark
-            ? "radial-gradient(circle at 18% 18%, rgba(93, 242, 255, 0.18) 0, transparent 30%)"
-            : "radial-gradient(circle at 18% 18%, rgba(0, 123, 143, 0.2) 0, transparent 30%)",
+            ? "radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.12) 0, transparent 30%)"
+            : "radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.72) 0, transparent 30%)",
           isDark
-            ? "radial-gradient(circle at 78% 72%, rgba(183, 156, 255, 0.16) 0, transparent 28%)"
-            : "radial-gradient(circle at 78% 72%, rgba(103, 87, 216, 0.12) 0, transparent 28%)",
+            ? "radial-gradient(circle at 78% 72%, rgba(255, 77, 97, 0.16) 0, transparent 28%)"
+            : "radial-gradient(circle at 78% 72%, rgba(207, 49, 72, 0.1) 0, transparent 28%)",
           "linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%)",
         ].join(", "),
         overflow: "hidden",
@@ -292,15 +292,15 @@ export default function LoginPage() {
           aspectRatio: "16 / 9",
           maxHeight: "calc(100vh - 32px)",
           background: isDark
-            ? "linear-gradient(145deg, rgba(8, 18, 31, 0.8), rgba(8, 18, 31, 0.58))"
-            : "linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(246, 253, 255, 0.62))",
+            ? "linear-gradient(145deg, rgba(22, 22, 25, 0.88), rgba(12, 12, 14, 0.72))"
+            : "linear-gradient(145deg, rgba(255, 254, 250, 0.9), rgba(245, 242, 235, 0.72))",
           borderRadius: "8px",
           border: `1px solid ${alpha(theme.palette.primary.main, isDark ? 0.24 : 0.18)}`,
           backdropFilter: "blur(24px) saturate(150%)",
           WebkitBackdropFilter: "blur(24px) saturate(150%)",
           boxShadow: isDark
             ? `0 32px 70px rgba(0, 0, 0, 0.42), 0 0 36px ${alpha(theme.palette.primary.main, 0.12)}`
-            : "0 30px 60px rgba(31, 77, 92, 0.16)",
+            : "0 30px 60px rgba(31, 28, 24, 0.16)",
           overflow: "hidden",
           opacity: active ? 1 : 0,
           transform: "translate3d(0, 0, 0)",

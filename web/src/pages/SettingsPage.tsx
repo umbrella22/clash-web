@@ -62,6 +62,7 @@ import {
   useValidateDnsConfig,
 } from "../hooks/useApi";
 import type { BackupMetadata } from "../services/api";
+import { PageTitle } from "../components/SystemChrome";
 import {
   getOverviewCardOrder,
   normalizeOverviewCards,
@@ -71,18 +72,6 @@ import {
 
 const sectionCardSx = {
   height: "100%",
-  "&::after": {
-    content: '""',
-    position: "absolute",
-    top: -1,
-    left: -1,
-    width: 12,
-    height: 12,
-    borderTop: 2,
-    borderLeft: 2,
-    borderColor: "text.primary",
-    opacity: 0.55,
-  },
 } as const;
 
 const sectionCardContentSx = {
@@ -94,7 +83,7 @@ const sectionCardContentSx = {
 
 const sectionPanelSx = {
   p: 1.5,
-  borderRadius: 1.5,
+  borderRadius: 0,
   border: 1,
   borderColor: "divider",
   bgcolor: "background.default",
@@ -221,7 +210,7 @@ export default function SettingsPage() {
 
   return (
     <Box>
-      <Typography variant="h5" gutterBottom sx={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>{t("settings.title")}</Typography>
+      <PageTitle title={t("settings.title")} eyebrow="SYSTEM CONFIGURATION" />
       <Grid container spacing={3}>
         {/* Mihomo Version */}
         <Grid size={{ xs: 12 }}>
@@ -875,7 +864,7 @@ function MihomoVersionCard() {
           sx={{
             mb: 2,
             p: 2,
-            borderRadius: 1,
+            borderRadius: 0,
             border: 1,
             borderColor: "divider",
             bgcolor: "background.default",

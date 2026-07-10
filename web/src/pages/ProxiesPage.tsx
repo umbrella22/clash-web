@@ -269,7 +269,7 @@ export default function ProxiesPage() {
           p: 1.25,
           border: 1,
           borderColor: "divider",
-          borderRadius: 2,
+          borderRadius: 0,
           background: alpha(theme.palette.background.paper, 0.58),
           backdropFilter: "blur(18px)",
         })}
@@ -512,7 +512,7 @@ function GroupHeader({
           </IconButton>
         </Tooltip>
       </Box>
-      <Box sx={(theme) => ({ p: 1.25, borderRadius: 1.5, border: 1, borderColor: "divider", backgroundColor: alpha(theme.palette.background.default, 0.32) })}>
+      <Box sx={(theme) => ({ p: 1.25, borderRadius: 0, border: 1, borderColor: "divider", backgroundColor: alpha(theme.palette.background.default, 0.32) })}>
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.75 }}>
           <Typography variant="caption" color="text.secondary">
             {t("proxies.summary_available", { available: summary.availableNodes, total: summary.totalNodes })}
@@ -655,7 +655,7 @@ function ProxyNodeCard({
         minHeight: 68,
         justifyContent: "flex-start",
         textAlign: "left",
-        borderRadius: 1.5,
+        borderRadius: 0,
         p: 1.25,
         borderColor: active ? alpha(theme.palette.primary.main, 0.78) : "divider",
         backgroundColor: active

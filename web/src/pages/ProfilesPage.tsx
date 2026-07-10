@@ -362,22 +362,12 @@ function ProfileCard({
         borderColor: isActive ? "primary.main" : undefined,
         borderWidth: isActive ? 2 : 1,
         position: "relative",
-        transition: "transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease",
+        transitionProperty: "transform, box-shadow, background-color",
+        transitionDuration: "180ms",
+        transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
         "&:hover": {
-          transform: "translateY(-4px)",
-          boxShadow: (theme) => theme.shadows[6],
-        },
-        "&::after": {
-          content: '""',
-          position: "absolute",
-          top: -1,
-          left: -1,
-          width: 12,
-          height: 12,
-          borderTop: 2,
-          borderLeft: 2,
-          borderColor: isActive ? "primary.main" : "text.primary",
-          opacity: isActive ? 1 : 0.55,
+          transform: "translateY(-3px)",
+          boxShadow: "0 20px 42px rgba(0, 0, 0, 0.2)",
         },
       }}
     >
@@ -413,7 +403,7 @@ function ProfileCard({
               p: 1,
               border: 1,
               borderColor: profile.subscription_update_detail?.success === false ? "warning.main" : "divider",
-              borderRadius: 1,
+              borderRadius: 0,
               bgcolor: "background.default",
             }}
           >
@@ -688,7 +678,7 @@ function ProfileAdvancedOptions({
   const updateExtra = (patch: ProfileExtra) => onChange({ ...extra, ...patch });
 
   return (
-    <Box sx={{ p: 1.5, border: 1, borderColor: "divider", borderRadius: 1.5 }}>
+    <Box sx={{ p: 1.5, border: 1, borderColor: "divider", borderRadius: 0 }}>
       <Typography variant="subtitle2" sx={{ mb: 1 }}>
         {t("profiles.advanced_subscription")}
       </Typography>

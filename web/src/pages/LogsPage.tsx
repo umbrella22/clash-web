@@ -214,7 +214,7 @@ export default function LogsPage() {
             sx={{
               height: "calc(100vh - 300px)",
               overflow: "auto",
-              borderRadius: 1,
+              borderRadius: 0,
               borderColor: alpha(accentColor, isDark ? 0.15 : 0.14),
               backgroundColor: isDark
                 ? "rgba(0, 0, 0, 0.25)"

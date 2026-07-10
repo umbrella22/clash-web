@@ -213,6 +213,54 @@ export default function App() {
   const [mode, setMode] = useState<"dark" | "light">(getThemeMode);
   const theme = mode === "dark" ? darkTheme : lightTheme;
 
+  useEffect(() => {
+    document.documentElement.dataset.clashTheme = mode;
+  }, [mode]);
+
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    const getCard = (target: EventTarget | null) =>
+      target instanceof Element ? target.closest<HTMLElement>(".MuiCard-root") : null;
+    const isWithinCard = (card: HTMLElement, target: EventTarget | null) =>
+      target instanceof Node && card.contains(target);
+
+    const handlePointerOver = (event: PointerEvent) => {
+      if (event.pointerType === "touch") return;
+      const card = getCard(event.target);
+      if (!card || isWithinCard(card, event.relatedTarget)) return;
+      card.dataset.cardTrace = "enter";
+    };
+
+    const handlePointerOut = (event: PointerEvent) => {
+      if (event.pointerType === "touch") return;
+      const card = getCard(event.target);
+      if (!card || isWithinCard(card, event.relatedTarget)) return;
+      card.dataset.cardTrace = "leave";
+    };
+
+    const handleAnimationEnd = (event: AnimationEvent) => {
+      if (
+        !(event.target instanceof HTMLElement) ||
+        !event.target.matches(".MuiCard-root") ||
+        !["card-perimeter-enter", "card-perimeter-leave"].includes(event.animationName)
+      ) {
+        return;
+      }
+      delete event.target.dataset.cardTrace;
+    };
+
+    document.addEventListener("pointerover", handlePointerOver);
+    document.addEventListener("pointerout", handlePointerOut);
+    document.addEventListener("animationend", handleAnimationEnd);
+
+    return () => {
+      document.removeEventListener("pointerover", handlePointerOver);
+      document.removeEventListener("pointerout", handlePointerOut);
+      document.removeEventListener("animationend", handleAnimationEnd);
+    };
+  }, []);
+
   const setThemeMode = (next: "dark" | "light") => {
     setMode(next);
     localStorage.setItem("clash-web-theme", next);

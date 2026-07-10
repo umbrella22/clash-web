@@ -66,6 +66,7 @@ import {
 } from "../features/mihomoDownload";
 import { useMihomoDownloadTaskContext } from "../contexts/MihomoDownloadTaskContext";
 import RealtimeLineChart from "../components/RealtimeLineChart";
+import { PageTitle } from "../components/SystemChrome";
 import {
   getOverviewCardOrder,
   isOverviewCardVisible,
@@ -236,23 +237,10 @@ export default function OverviewPage() {
     [preferences?.overview_cards]
   );
   const sharedCardSx = {
-    position: "relative",
     display: "flex",
     width: "100%",
     height: "100%",
     minHeight: 340,
-    "&::after": {
-      content: '""',
-      position: "absolute",
-      top: 0,
-      left: 0,
-      width: 12,
-      height: 12,
-      borderTop: 2,
-      borderLeft: 2,
-      borderColor: "text.primary",
-      opacity: 0.7,
-    },
   } as const;
   const sharedCardContentSx = {
     display: "flex",
@@ -265,7 +253,7 @@ export default function OverviewPage() {
     p: 1.5,
     border: 1,
     borderColor: "divider",
-    borderRadius: 1.5,
+    borderRadius: 0,
     bgcolor: "background.default",
   } as const;
 
@@ -357,9 +345,7 @@ export default function OverviewPage() {
 
   return (
     <Box>
-      <Typography variant="h5" gutterBottom sx={{ letterSpacing: "0.08em", textTransform: "uppercase" }}>
-        {t("overview.title")}
-      </Typography>
+      <PageTitle title={t("overview.title")} eyebrow="NETWORK OVERVIEW" />
 
       {!mihomoInstalled && (
         <Alert
@@ -504,7 +490,7 @@ export default function OverviewPage() {
                       p: 1.5,
                       border: 1,
                       borderColor: "divider",
-                      borderRadius: 1.5,
+                      borderRadius: 0,
                       bgcolor: "background.default",
                     }}
                   >
@@ -522,7 +508,7 @@ export default function OverviewPage() {
                       p: 1.5,
                       border: 1,
                       borderColor: "divider",
-                      borderRadius: 1.5,
+                      borderRadius: 0,
                       bgcolor: "background.default",
                     }}
                   >
@@ -540,7 +526,7 @@ export default function OverviewPage() {
                       p: 1.5,
                       border: 1,
                       borderColor: "divider",
-                      borderRadius: 1.5,
+                      borderRadius: 0,
                       bgcolor: "background.default",
                     }}
                   >
@@ -682,7 +668,7 @@ export default function OverviewPage() {
                     <Box
                       sx={(theme) => ({
                         p: 1.5,
-                        borderRadius: 1.5,
+                        borderRadius: 0,
                         bgcolor: alpha(theme.palette.primary.main, 0.08),
                         boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.18)}`,
                         display: "flex",
@@ -891,7 +877,7 @@ export default function OverviewPage() {
                                   justifyContent: "flex-start",
                                   alignItems: "center",
                                   gap: 1,
-                                  borderRadius: 1.5,
+                                  borderRadius: 0,
                                   textTransform: "none",
                                   transitionProperty: "transform, box-shadow, background-color, border-color",
                                   "&:active": { transform: "scale(0.96)" },
@@ -915,7 +901,7 @@ export default function OverviewPage() {
                         sx={(theme) => ({
                           mt: "auto",
                           p: 1.5,
-                          borderRadius: 1.5,
+                          borderRadius: 0,
                           bgcolor: alpha(theme.palette.background.paper, 0.58),
                           boxShadow: `inset 0 0 0 1px ${alpha(theme.palette.divider, 0.75)}`,
                         })}
@@ -1082,7 +1068,7 @@ export default function OverviewPage() {
                 <LinearProgress
                   variant="determinate"
                   value={Math.min(memPct, 100)}
-                  sx={{ height: 8, borderRadius: 4 }}
+                  sx={{ height: 8, borderRadius: 0 }}
                 />
               </Box>
               <Box

@@ -1,98 +1,142 @@
-import { alpha } from "@mui/material/styles";
-import { Box, Card, Typography } from "@mui/material";
+import { Box, Card, Typography, type SxProps, type Theme } from "@mui/material";
+function SignalAssembly() {
+  return (
+    <Box
+      component="svg"
+      aria-hidden
+      viewBox="0 0 132 64"
+      sx={{
+        width: 116,
+        height: 56,
+        flex: "0 0 auto",
+        display: { xs: "none", lg: "block" },
+        overflow: "visible",
+        "& .signal-assembly__orbit--auxiliary": {
+          transformBox: "fill-box",
+          transformOrigin: "center",
+          animation: "signal-assembly-orbit 10s linear infinite reverse",
+        },
+        "& .signal-assembly__electron": {
+          // Starts at the right edge of the main ellipse, then traces that ellipse as an electron.
+          transform: "translate(37.8px, 0)",
+          transformBox: "fill-box",
+          transformOrigin: "center",
+          animation: "signal-assembly-electron 4.8s linear infinite",
+          willChange: "transform, opacity",
+        },
+        "@keyframes signal-assembly-orbit": {
+          from: { transform: "rotate(0deg)" },
+          to: { transform: "rotate(360deg)" },
+        },
+        "@keyframes signal-assembly-electron": {
+          "0%, 100%": { transform: "translate(37.8px, 0)", opacity: 0.98 },
+          "12.5%": { transform: "translate(26.7px, -7.4px)", opacity: 0.82 },
+          "25%": { transform: "translate(0, -10.5px)", opacity: 0.56 },
+          "37.5%": { transform: "translate(-26.7px, -7.4px)", opacity: 0.76 },
+          "50%": { transform: "translate(-37.8px, 0)", opacity: 0.98 },
+          "62.5%": { transform: "translate(-26.7px, 7.4px)", opacity: 1 },
+          "75%": { transform: "translate(0, 10.5px)", opacity: 0.9 },
+          "87.5%": { transform: "translate(26.7px, 7.4px)", opacity: 1 },
+        },
+        "@media (prefers-reduced-motion: reduce)": {
+          "& .signal-assembly__orbit--auxiliary, & .signal-assembly__electron": {
+            animation: "none",
+          },
+        },
+      }}
+    >
+      <g fill="none" stroke="currentColor" strokeWidth="1">
+        <circle cx="52" cy="32" r="19" opacity="0.58" />
+        <ellipse className="signal-assembly__orbit" cx="52" cy="32" rx="43" ry="12" opacity="0.7" />
+        <ellipse className="signal-assembly__orbit signal-assembly__orbit--auxiliary" cx="52" cy="32" rx="31" ry="9" opacity="0.38" transform="rotate(-45 52 32)" />
+        <path d="M88 10H124V46H106" opacity="0.34" />
+        <path d="M12 52H37" opacity="0.34" />
+      </g>
+      <circle className="signal-assembly__electron" cx="52" cy="32" r="3.5" fill="currentColor" />
+      <circle cx="52" cy="32" r="4" fill="currentColor" opacity="0.82" />
+    </Box>
+  );
+}
 
 export function PageTitle({
   title,
   count,
   actions,
+  eyebrow = "CONTROL SURFACE",
 }: {
   title: string;
   count?: number;
   actions?: React.ReactNode;
+  eyebrow?: string;
 }) {
   return (
     <Box
-      sx={(theme) => ({
+      component="header"
+      sx={{
         display: "flex",
+        alignItems: { xs: "flex-start", md: "flex-end" },
         justifyContent: "space-between",
-        alignItems: "center",
-        gap: 1.5,
+        gap: 2,
         flexWrap: "wrap",
-        width: actions ? "100%" : "fit-content",
-        maxWidth: "100%",
-        minHeight: 44,
-        mb: 1.75,
-        px: 0.25,
-        pr: actions ? 0.25 : 3,
-        pb: 0.75,
+        mb: { xs: 2.25, md: 3 },
+        pb: 2,
+        borderBottom: 1,
+        borderColor: "divider",
         position: "relative",
-        color: "text.primary",
-        "&::before": {
-          content: '""',
-          position: "absolute",
-          left: 0,
-          bottom: 0,
-          width: 34,
-          height: 2,
-          borderRadius: 999,
-          background: `linear-gradient(90deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-          boxShadow:
-            theme.palette.mode === "dark"
-              ? `0 0 16px ${alpha(theme.palette.primary.main, 0.42)}`
-              : "none",
-        },
         "&::after": {
           content: '""',
           position: "absolute",
           left: 0,
-          bottom: 0,
-          width: { xs: "100%", md: "min(520px, 54%)" },
-          height: 1,
-          background: `linear-gradient(90deg, ${alpha(theme.palette.primary.main, 0.38)}, ${alpha(
-              theme.palette.secondary.main,
-              0.14,
-            )}, transparent)`,
+          bottom: -1,
+          width: { xs: 44, md: 72 },
+          height: 2,
+          backgroundColor: "primary.main",
         },
-      })}
+      }}
     >
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, minWidth: 0 }}>
-        <Box
-          sx={(theme) => ({
-            width: 3,
-            height: 22,
-            flex: "0 0 auto",
-            borderRadius: 999,
-            background: `linear-gradient(180deg, ${theme.palette.primary.main}, ${theme.palette.secondary.main})`,
-            opacity: 0.82,
-            boxShadow:
-              theme.palette.mode === "dark"
-                ? `0 0 14px ${alpha(theme.palette.primary.main, 0.36)}`
-                : "none",
-          })}
-        />
+      <Box sx={{ minWidth: 0 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.85 }}>
+          <Box sx={{ width: 7, height: 7, bgcolor: "primary.main" }} />
+          <Typography
+            sx={{
+              fontFamily: '"JetBrains Mono", "Courier New", monospace',
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: "0.15em",
+              color: "text.secondary",
+            }}
+          >
+            // {eyebrow}
+          </Typography>
+          {typeof count === "number" ? (
+            <Typography
+              sx={{
+                fontFamily: '"JetBrains Mono", "Courier New", monospace',
+                fontSize: 10,
+                fontWeight: 800,
+                letterSpacing: "0.1em",
+                color: "primary.main",
+              }}
+            >
+              {String(count).padStart(2, "0")} ITEMS
+            </Typography>
+          ) : null}
+        </Box>
         <Typography
-          variant="h5"
+          variant="h4"
           sx={{
-            fontSize: { xs: 22, md: 23 },
-            lineHeight: 1.12,
-            letterSpacing: "0.02em",
-            fontFamily: "inherit",
-            fontWeight: 850,
-            textShadow: (theme) =>
-              theme.palette.mode === "dark"
-                ? `0 0 14px ${alpha(theme.palette.primary.main, 0.22)}`
-                : "none",
+            fontSize: { xs: 26, md: 32 },
+            lineHeight: 1.04,
+            color: "text.primary",
           }}
         >
           {title}
-          {typeof count === "number" ? ` (${count})` : ""}
         </Typography>
       </Box>
-      {actions ? (
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1, ml: "auto" }}>
-          {actions}
-        </Box>
-      ) : null}
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, ml: "auto" }}>
+        <Box sx={{ color: "primary.main", lineHeight: 0 }}><SignalAssembly /></Box>
+        {actions ? <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>{actions}</Box> : null}
+      </Box>
     </Box>
   );
 }
@@ -102,37 +146,13 @@ export function SystemPanel({
   sx,
 }: {
   children: React.ReactNode;
-  sx?: Record<string, unknown>;
+  sx?: SxProps<Theme>;
 }) {
   return (
     <Card
       sx={{
         position: "relative",
         overflow: "hidden",
-        "&::after": {
-          content: '""',
-          position: "absolute",
-          top: -1,
-          left: -1,
-          width: 18,
-          height: 18,
-          borderTop: 2,
-          borderLeft: 2,
-          borderColor: "primary.main",
-          opacity: 0.74,
-          filter: (theme) =>
-            theme.palette.mode === "dark"
-              ? `drop-shadow(0 0 8px ${alpha(theme.palette.primary.main, 0.5)})`
-              : "none",
-        },
-        "&::before": {
-          content: '""',
-          position: "absolute",
-          inset: 0,
-          pointerEvents: "none",
-          background: (theme) =>
-            `linear-gradient(135deg, ${alpha(theme.palette.primary.main, 0.1)}, transparent 36%)`,
-        },
         ...sx,
       }}
     >
