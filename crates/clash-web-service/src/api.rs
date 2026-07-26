@@ -327,6 +327,9 @@ mod tests {
     }
 
     async fn test_state_with_token(api_url: String, config_dir: String, token: &str) -> AppState {
+        // reqwest is built with `rustls-no-provider`; main.rs installs the
+        // provider at startup, tests must do the same before building clients.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let config = clash_web_core::AppConfig {
             server: ServerConfig {
                 host: "127.0.0.1".into(),
@@ -960,12 +963,14 @@ mod tests {
         let state = test_state(api_url, config_dir).await;
         let app_url = spawn_router(create_router(state)).await;
         let client = reqwest::Client::new();
+        // create_profile eagerly downloads remote profiles (and would already
+        // reject the private URL there), so create without a URL first and
+        // attach the private URL via update_profile, which does not download.
         let created = client
             .post(format!("{}/api/v1/profiles", app_url))
             .json(&json!({
                 "name": "remote-profile",
-                "type": "remote",
-                "url": "http://127.0.0.1/sub.yaml"
+                "type": "remote"
             }))
             .send()
             .await
@@ -974,6 +979,14 @@ mod tests {
             .await
             .unwrap();
         let uid = created["uid"].as_str().unwrap();
+
+        let response = client
+            .put(format!("{}/api/v1/profiles/{}", app_url, uid))
+            .json(&json!({ "url": "http://127.0.0.1/sub.yaml" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
 
         let response = client
             .post(format!("{}/api/v1/profiles/{}/update", app_url, uid))

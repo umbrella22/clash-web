@@ -15,6 +15,16 @@ pub const MAX_SUBSCRIPTION_TIMEOUT_SECS: u64 = 120;
 pub const MAX_SUBSCRIPTION_RETRY_COUNT: u32 = 3;
 pub const MAX_SUBSCRIPTION_RETRY_INTERVAL_SECS: u64 = 60;
 
+/// Subscription providers sniff the User-Agent to decide which config flavor to
+/// return: only UAs containing tokens like `clash.meta`/`clash-verge`/`mihomo`
+/// get the full mihomo config (vless, hysteria2, anytls, ...); a bare `clash`
+/// UA gets a legacy config with most nodes stripped.
+pub const DEFAULT_SUBSCRIPTION_USER_AGENT: &str = concat!(
+    "clash-web/v",
+    env!("CARGO_PKG_VERSION"),
+    " clash-verge clash.meta mihomo"
+);
+
 #[derive(Clone)]
 pub struct SubscriptionDownloadOptions {
     pub allow_private_hosts: bool,
@@ -121,14 +131,25 @@ async fn download_subscription_once(
     user_agent: Option<&str>,
     request_headers: &HashMap<String, String>,
 ) -> Result<SubscriptionDownloadResult> {
+    // Blank UA must fall back to the default, and only one User-Agent header
+    // may go on the wire (reqwest's header() appends instead of replacing):
+    // the explicit user_agent option wins over a UA in raw request headers.
+    let user_agent = user_agent.map(str::trim).filter(|ua| !ua.is_empty());
     let mut req = client.get(url);
+    let mut has_header_ua = false;
     for (name, value) in request_headers {
+        if name.eq_ignore_ascii_case("user-agent") {
+            if user_agent.is_some() {
+                continue;
+            }
+            has_header_ua = true;
+        }
         req = req.header(name, value);
     }
     if let Some(ua) = user_agent {
         req = req.header("User-Agent", ua);
-    } else {
-        req = req.header("User-Agent", "clash-web/0.1.0");
+    } else if !has_header_ua {
+        req = req.header("User-Agent", DEFAULT_SUBSCRIPTION_USER_AGENT);
     }
 
     let resp = req.send().await?.error_for_status()?;
@@ -152,45 +173,74 @@ async fn download_subscription_once(
 
     let downloaded_bytes = content.len() as u64;
     let content = String::from_utf8(content)?;
-    let content = normalize_subscription_content(&content)?;
+    let normalized = normalize_subscription_content(&content)?;
 
     let subscription_info = parse_subscription_info(&headers);
 
     Ok(SubscriptionDownloadResult {
-        content,
+        content: normalized.content,
         subscription_info,
         http_status,
         downloaded_bytes,
+        skipped_links: normalized.skipped_links,
         attempts: 1,
     })
 }
 
-fn normalize_subscription_content(content: &str) -> Result<String> {
+/// Result of turning a raw subscription body into mihomo YAML, including how
+/// many share-link lines had to be dropped along the way.
+#[derive(Debug)]
+struct NormalizedSubscription {
+    content: String,
+    skipped_links: u32,
+}
+
+impl NormalizedSubscription {
+    fn complete(content: String) -> Self {
+        Self {
+            content,
+            skipped_links: 0,
+        }
+    }
+}
+
+fn normalize_subscription_content(content: &str) -> Result<NormalizedSubscription> {
     let trimmed = content.trim_start_matches('\u{feff}').trim();
     if trimmed.is_empty() {
         anyhow::bail!("Subscription content is empty");
     }
 
     if let Some(normalized) = normalize_yaml_subscription(trimmed)? {
-        return Ok(normalized);
+        return Ok(NormalizedSubscription::complete(normalized));
     }
 
+    let mut uri_error = None;
     if let Some(decoded) = try_decode_base64_text(trimmed) {
         let decoded = decoded.trim();
         if let Some(normalized) = normalize_yaml_subscription(decoded)? {
-            return Ok(normalized);
+            return Ok(NormalizedSubscription::complete(normalized));
         }
 
-        if let Ok(normalized) = normalize_uri_subscription(decoded) {
-            return Ok(normalized);
+        match normalize_uri_subscription(decoded) {
+            Ok(normalized) => return Ok(normalized),
+            Err(error) => uri_error = Some(error),
         }
     }
 
-    if let Ok(normalized) = normalize_uri_subscription(trimmed) {
-        return Ok(normalized);
+    match normalize_uri_subscription(trimmed) {
+        Ok(normalized) => return Ok(normalized),
+        Err(error) => {
+            if uri_error.is_none() {
+                uri_error = Some(error);
+            }
+        }
     }
 
-    anyhow::bail!("Unsupported subscription format: expected Mihomo YAML or share links")
+    let message = "Unsupported subscription format: expected Mihomo YAML or share links";
+    match uri_error {
+        Some(error) => Err(error.context(message)),
+        None => Err(anyhow::anyhow!(message)),
+    }
 }
 
 fn normalize_yaml_subscription(content: &str) -> Result<Option<String>> {
@@ -259,8 +309,10 @@ fn read_proxy_names(root: &Mapping) -> Vec<String> {
         .collect()
 }
 
-fn normalize_uri_subscription(content: &str) -> Result<String> {
+fn normalize_uri_subscription(content: &str) -> Result<NormalizedSubscription> {
     let mut proxies = Vec::new();
+    let mut first_error = None;
+    let mut skipped = 0u32;
 
     for (index, raw_line) in content.lines().enumerate() {
         let line = raw_line.trim();
@@ -268,11 +320,30 @@ fn normalize_uri_subscription(content: &str) -> Result<String> {
             continue;
         }
 
-        proxies.extend(parse_share_link(line, index + 1)?);
+        // Mirror mihomo's converter: a malformed line is skipped, not fatal,
+        // because real-world subscriptions mix announcement lines and novel
+        // schemes in with valid links.
+        match parse_share_link(line, index + 1) {
+            Ok(parsed) => proxies.extend(parsed),
+            Err(error) => {
+                skipped += 1;
+                tracing::warn!("Skipping unparsable share link at line {}: {}", index + 1, error);
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
+            }
+        }
+    }
+
+    if skipped > 0 {
+        tracing::warn!("Skipped {} unparsable share link(s) in subscription", skipped);
     }
 
     if proxies.is_empty() {
-        anyhow::bail!("No supported share links found in subscription");
+        return Err(match first_error {
+            Some(error) => error.context("No supported share links found in subscription"),
+            None => anyhow::anyhow!("No supported share links found in subscription"),
+        });
     }
 
     let proxy_names = proxies
@@ -313,7 +384,10 @@ fn normalize_uri_subscription(content: &str) -> Result<String> {
         Value::Sequence(vec![Value::String("MATCH,PROXY".to_string())]),
     );
 
-    Ok(serde_yaml::to_string(&Value::Mapping(root))?)
+    Ok(NormalizedSubscription {
+        content: serde_yaml::to_string(&Value::Mapping(root))?,
+        skipped_links: skipped,
+    })
 }
 
 fn build_default_proxy_groups(proxy_names: &[String]) -> Value {
@@ -461,12 +535,19 @@ fn parse_vmess_json_config(decoded: &str, index: usize) -> Result<Value> {
         insert_bool(&mut proxy, "tls", true);
     }
 
-    if let Some(server_name) = json_string(&data, "sni").or_else(|| json_string(&data, "host")) {
+    if let Some(server_name) = json_string(&data, "sni")
+        .filter(|value| !value.is_empty())
+        .or_else(|| json_string(&data, "host").filter(|value| !value.is_empty()))
+    {
         insert_string(&mut proxy, "servername", server_name);
     }
 
     if let Some(skip_verify) = json_string(&data, "allowInsecure").map(|value| is_truthy(&value)) {
         insert_bool(&mut proxy, "skip-cert-verify", skip_verify);
+    }
+
+    if let Some(fingerprint) = json_string(&data, "fp").filter(|value| !value.is_empty()) {
+        insert_string(&mut proxy, "client-fingerprint", fingerprint);
     }
 
     apply_network_options(
@@ -504,13 +585,13 @@ fn parse_vmess_aead_link(link: &str, index: usize) -> Result<Value> {
         "name",
         url.fragment()
             .filter(|name| !name.is_empty())
-            .map(ToOwned::to_owned)
+            .map(percent_decode)
             .unwrap_or_else(|| format!("vmess-{}", index)),
     );
     insert_string(&mut proxy, "type", "vmess");
     insert_string(&mut proxy, "server", host.to_string());
     insert_number(&mut proxy, "port", port.into());
-    insert_string(&mut proxy, "uuid", url.username().to_string());
+    insert_string(&mut proxy, "uuid", percent_decode(url.username()));
     insert_number(&mut proxy, "alterId", 0);
     insert_string(
         &mut proxy,
@@ -605,11 +686,21 @@ fn parse_ss_link(link: &str, index: usize) -> Result<Value> {
     if let Ok(url) = Url::parse(body) {
         if !url.username().is_empty() {
             if let Some(host) = url.host_str() {
-                let credentials = decode_base64_text(url.username())
-                    .unwrap_or_else(|| url.username().to_string());
-                let (cipher, password) = credentials
-                    .split_once(':')
-                    .ok_or_else(|| anyhow::anyhow!("Invalid ss credentials at line {}", index))?;
+                // The url crate percent-encodes reserved characters in the
+                // userinfo (e.g. base64 padding `=` becomes `%3D`), so decode
+                // before interpreting the credentials.
+                let username = percent_decode(url.username());
+                let (cipher, password) = if let Some(password) = url.password() {
+                    // SIP002 plain form: ss://method:password@host:port
+                    (username, percent_decode(password))
+                } else {
+                    // SIP002 base64 form: ss://base64(method:password)@host:port
+                    let credentials = decode_base64_text(&username).unwrap_or(username);
+                    let (cipher, password) = credentials.split_once(':').ok_or_else(|| {
+                        anyhow::anyhow!("Invalid ss credentials at line {}", index)
+                    })?;
+                    (cipher.to_string(), password.to_string())
+                };
                 insert_string(&mut proxy, "server", host.to_string());
                 insert_number(
                     &mut proxy,
@@ -618,8 +709,8 @@ fn parse_ss_link(link: &str, index: usize) -> Result<Value> {
                         .ok_or_else(|| anyhow::anyhow!("Missing ss port at line {}", index))?
                         .into(),
                 );
-                insert_string(&mut proxy, "cipher", cipher.to_string());
-                insert_string(&mut proxy, "password", password.to_string());
+                insert_string(&mut proxy, "cipher", cipher);
+                insert_string(&mut proxy, "password", password);
                 apply_ss_plugin(
                     &mut proxy,
                     url.query_pairs()
@@ -824,7 +915,7 @@ fn parse_hysteria2_link(link: &str, index: usize) -> Result<Value> {
     insert_string(&mut proxy, "type", "hysteria2");
     insert_string(&mut proxy, "server", host.to_string());
     insert_number(&mut proxy, "port", port.into());
-    insert_string(&mut proxy, "password", url.username().to_string());
+    insert_string(&mut proxy, "password", percent_decode(url.username()));
 
     if let Some(value) = query_value(&query, "sni") {
         insert_string(&mut proxy, "sni", value);
@@ -875,10 +966,10 @@ fn parse_tuic_link(link: &str, index: usize) -> Result<Value> {
     insert_bool(&mut proxy, "udp", true);
 
     if let Some(password) = url.password() {
-        insert_string(&mut proxy, "uuid", url.username().to_string());
-        insert_string(&mut proxy, "password", password.to_string());
+        insert_string(&mut proxy, "uuid", percent_decode(url.username()));
+        insert_string(&mut proxy, "password", percent_decode(password));
     } else if !url.username().is_empty() {
-        insert_string(&mut proxy, "token", url.username().to_string());
+        insert_string(&mut proxy, "token", percent_decode(url.username()));
     } else {
         anyhow::bail!("Missing tuic credentials at line {}", index);
     }
@@ -924,8 +1015,8 @@ fn parse_anytls_link(link: &str, index: usize) -> Result<Value> {
     let query = url.query_pairs().collect::<Vec<_>>();
     let password = url
         .password()
-        .map(ToOwned::to_owned)
-        .or_else(|| (!url.username().is_empty()).then(|| url.username().to_string()))
+        .map(percent_decode)
+        .or_else(|| (!url.username().is_empty()).then(|| percent_decode(url.username())))
         .ok_or_else(|| anyhow::anyhow!("Missing anytls password at line {}", index))?;
 
     let mut proxy = Mapping::new();
@@ -966,7 +1057,7 @@ fn parse_mieru_link(link: &str, index: usize) -> Result<Vec<Value>> {
     let base_name = url
         .fragment()
         .filter(|name| !name.is_empty())
-        .map(ToOwned::to_owned)
+        .map(percent_decode)
         .or_else(|| query_value(&query, "profile"))
         .unwrap_or_else(|| format!("mieru-{}", index));
     let protocols = query_values(&query, "protocol");
@@ -984,11 +1075,11 @@ fn parse_mieru_link(link: &str, index: usize) -> Result<Vec<Value>> {
             );
             insert_string(&mut proxy, "type", "mieru");
             insert_string(&mut proxy, "server", host.to_string());
-            insert_string(&mut proxy, "username", url.username().to_string());
+            insert_string(&mut proxy, "username", percent_decode(url.username()));
             insert_string(
                 &mut proxy,
                 "password",
-                url.password().unwrap_or_default().to_string(),
+                percent_decode(url.password().unwrap_or_default()),
             );
             insert_number(
                 &mut proxy,
@@ -1015,7 +1106,7 @@ fn parse_mieru_link(link: &str, index: usize) -> Result<Vec<Value>> {
         insert_string(&mut proxy, "name", base_name);
         insert_string(&mut proxy, "type", "mieru");
         insert_string(&mut proxy, "server", host.to_string());
-        insert_string(&mut proxy, "username", url.username().to_string());
+        insert_string(&mut proxy, "username", percent_decode(url.username()));
         insert_string(
             &mut proxy,
             "password",
@@ -1039,7 +1130,7 @@ fn parse_mieru_link(link: &str, index: usize) -> Result<Vec<Value>> {
 fn name_from_url(url: &Url, fallback_prefix: &str, index: usize) -> String {
     url.fragment()
         .filter(|name| !name.is_empty())
-        .map(ToOwned::to_owned)
+        .map(percent_decode)
         .unwrap_or_else(|| format!("{}-{}", fallback_prefix, index))
 }
 
@@ -1050,12 +1141,13 @@ fn apply_proxy_auth(proxy: &mut Mapping, url: &Url) {
     }
 
     if let Some(password) = url.password() {
-        insert_string(proxy, "username", username.to_string());
-        insert_string(proxy, "password", password.to_string());
+        insert_string(proxy, "username", percent_decode(username));
+        insert_string(proxy, "password", percent_decode(password));
         return;
     }
 
-    let decoded = decode_base64_text(username).unwrap_or_else(|| username.to_string());
+    let username = percent_decode(username);
+    let decoded = decode_base64_text(&username).unwrap_or(username);
     if let Some((auth_user, auth_password)) = decoded.split_once(':') {
         insert_string(proxy, "username", auth_user.to_string());
         insert_string(proxy, "password", auth_password.to_string());
@@ -1076,7 +1168,7 @@ fn parse_trojan_or_vless_link(link: &str, proxy_type: &str, index: usize) -> Res
     let name = url
         .fragment()
         .filter(|name| !name.is_empty())
-        .map(ToOwned::to_owned)
+        .map(percent_decode)
         .unwrap_or_else(|| format!("{}-{}", proxy_type, index));
 
     let query = url.query_pairs().collect::<Vec<_>>();
@@ -1092,7 +1184,7 @@ fn parse_trojan_or_vless_link(link: &str, proxy_type: &str, index: usize) -> Res
 
     match proxy_type {
         "trojan" => {
-            insert_string(&mut proxy, "password", url.username().to_string());
+            insert_string(&mut proxy, "password", percent_decode(url.username()));
             insert_bool(
                 &mut proxy,
                 "tls",
@@ -1100,7 +1192,7 @@ fn parse_trojan_or_vless_link(link: &str, proxy_type: &str, index: usize) -> Res
             );
         }
         "vless" => {
-            insert_string(&mut proxy, "uuid", url.username().to_string());
+            insert_string(&mut proxy, "uuid", percent_decode(url.username()));
             insert_string(
                 &mut proxy,
                 "cipher",
@@ -1118,7 +1210,13 @@ fn parse_trojan_or_vless_link(link: &str, proxy_type: &str, index: usize) -> Res
     }
 
     if let Some(server_name) = query_value(&query, "sni").or_else(|| query_value(&query, "peer")) {
-        insert_string(&mut proxy, "servername", server_name);
+        // mihomo's trojan outbound reads `sni`; `servername` is vmess/vless.
+        let key = if proxy_type == "trojan" {
+            "sni"
+        } else {
+            "servername"
+        };
+        insert_string(&mut proxy, key, server_name);
     }
 
     if let Some(skip_verify) =
@@ -1195,13 +1293,34 @@ fn apply_ss_plugin(proxy: &mut Mapping, plugin: Option<String>) {
         return;
     };
 
-    insert_string(proxy, "plugin", plugin_name.to_string());
+    // Share links use the sslocal plugin names, mihomo only accepts its own:
+    // obfs-local/simple-obfs must become `obfs`, and its `obfs`/`obfs-host`
+    // parameters become `mode`/`host` (anything else is not a valid obfs opt).
+    let is_obfs = matches!(plugin_name, "obfs-local" | "simple-obfs" | "obfs");
+    insert_string(
+        proxy,
+        "plugin",
+        if is_obfs { "obfs" } else { plugin_name }.to_string(),
+    );
+
     let mut opts = Mapping::new();
     for part in parts {
         let Some((key, value)) = part.split_once('=') else {
+            // Flag-style option without a value, e.g. `tls` in v2ray-plugin.
+            if !is_obfs && !part.is_empty() {
+                insert_bool(&mut opts, part.to_string(), true);
+            }
             continue;
         };
-        insert_string(&mut opts, key.to_string(), value.to_string());
+        if is_obfs {
+            match key {
+                "obfs" | "mode" => insert_string(&mut opts, "mode", value.to_string()),
+                "obfs-host" | "host" => insert_string(&mut opts, "host", value.to_string()),
+                _ => {}
+            }
+        } else {
+            insert_string(&mut opts, key.to_string(), value.to_string());
+        }
     }
     if !opts.is_empty() {
         proxy.insert(
@@ -1298,9 +1417,18 @@ fn decode_base64_text(content: &str) -> Option<String> {
     .and_then(|bytes| String::from_utf8(bytes).ok())
 }
 
+/// Share links carry percent-encoded proxy names in fragments/userinfo; decode
+/// them so the UI shows readable names (mihomo does the same via Go's net/url).
+fn percent_decode(value: &str) -> String {
+    percent_encoding::percent_decode_str(value)
+        .decode_utf8()
+        .map(|decoded| decoded.into_owned())
+        .unwrap_or_else(|_| value.to_string())
+}
+
 fn split_name(link: &str) -> (&str, Option<String>) {
     match link.split_once('#') {
-        Some((body, name)) if !name.is_empty() => (body, Some(name.to_string())),
+        Some((body, name)) if !name.is_empty() => (body, Some(percent_decode(name))),
         Some((body, _)) => (body, None),
         None => (link, None),
     }
@@ -1481,6 +1609,8 @@ pub struct SubscriptionDownloadResult {
     pub subscription_info: Option<SubscriptionInfo>,
     pub http_status: u16,
     pub downloaded_bytes: u64,
+    /// Share-link lines that could not be parsed and were dropped.
+    pub skipped_links: u32,
     pub attempts: u32,
 }
 
@@ -1499,6 +1629,12 @@ mod tests {
             allow_private_hosts: false,
             ..Default::default()
         }
+    }
+
+    /// reqwest is built with `rustls-no-provider`, so anything constructing a
+    /// Client needs a crypto provider installed (main.rs does this at startup).
+    fn install_crypto_provider() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
     }
 
     #[test]
@@ -1528,6 +1664,7 @@ mod tests {
 
     #[tokio::test]
     async fn rejects_streamed_subscription_over_size_limit() {
+        install_crypto_provider();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move {
@@ -1558,6 +1695,7 @@ mod tests {
 
     #[tokio::test]
     async fn retries_subscription_download_and_sends_headers() {
+        install_crypto_provider();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let requests = Arc::new(Mutex::new(Vec::new()));
@@ -1616,13 +1754,213 @@ mod tests {
         assert!(requests[1].contains("user-agent: Custom-UA"));
     }
 
+    #[tokio::test]
+    async fn sends_mihomo_compatible_default_user_agent() {
+        install_crypto_provider();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let captured = Arc::new(Mutex::new(String::new()));
+        let request_sink = Arc::clone(&captured);
+
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0; 2048];
+            let size = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer)
+                .await
+                .unwrap();
+            *request_sink.lock().unwrap() = String::from_utf8_lossy(&buffer[..size]).to_string();
+
+            let body = "proxies: []\nrules:\n  - MATCH,DIRECT\n";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .unwrap();
+        });
+
+        super::download_subscription_with_options(
+            &format!("http://{}/sub.yaml", addr),
+            None,
+            SubscriptionDownloadOptions {
+                allow_private_hosts: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let request = captured.lock().unwrap().clone();
+        let ua_line = request
+            .lines()
+            .find(|line| line.to_ascii_lowercase().starts_with("user-agent:"))
+            .expect("request must carry a User-Agent header")
+            .to_string();
+        assert!(ua_line.contains(super::DEFAULT_SUBSCRIPTION_USER_AGENT));
+        assert!(ua_line.contains("clash.meta"));
+        assert!(ua_line.contains("mihomo"));
+    }
+
+    #[tokio::test]
+    async fn request_headers_user_agent_wins_and_is_sent_once() {
+        install_crypto_provider();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let captured = Arc::new(Mutex::new(String::new()));
+        let request_sink = Arc::clone(&captured);
+
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buffer = vec![0; 2048];
+            let size = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer)
+                .await
+                .unwrap();
+            *request_sink.lock().unwrap() = String::from_utf8_lossy(&buffer[..size]).to_string();
+
+            let body = "proxies: []\nrules:\n  - MATCH,DIRECT\n";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            tokio::io::AsyncWriteExt::write_all(&mut stream, response.as_bytes())
+                .await
+                .unwrap();
+        });
+
+        let mut request_headers = HashMap::new();
+        request_headers.insert("User-Agent".to_string(), "Panel-UA".to_string());
+
+        super::download_subscription_with_options(
+            &format!("http://{}/sub.yaml", addr),
+            None,
+            SubscriptionDownloadOptions {
+                allow_private_hosts: true,
+                request_headers,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let request = captured.lock().unwrap().clone();
+        let ua_lines = request
+            .lines()
+            .filter(|line| line.to_ascii_lowercase().starts_with("user-agent:"))
+            .collect::<Vec<_>>();
+        assert_eq!(ua_lines.len(), 1, "exactly one UA header: {request}");
+        assert!(ua_lines[0].contains("Panel-UA"));
+    }
+
+    #[test]
+    fn converts_ss2022_links_with_base64_userinfo() {
+        // Userinfo base64 has `=` padding, which the url crate percent-encodes;
+        // ss2022 passwords themselves contain `:` and must survive the split.
+        let credentials = general_purpose::STANDARD
+            .encode("2022-blake3-aes-128-gcm:OWEwZTRmYThhYTM2ZWE4MQ==:YjJmZGRmNTMtNWEzZS00NA==");
+        let link = format!(
+            "ss://{}@aa3.example.com:33003?plugin=obfs-local%3Bobfs%3Dhttp%3Bobfs-host%3Daws.amazon.com%3Bpath%3D%2F#%F0%9F%93%A2%20HK",
+            credentials
+        );
+        let yaml: Value =
+            serde_yaml::from_str(&normalize_subscription_content(&link).unwrap().content).unwrap();
+
+        let proxy = &yaml["proxies"][0];
+        assert_eq!(proxy["type"].as_str().unwrap(), "ss");
+        assert_eq!(proxy["server"].as_str().unwrap(), "aa3.example.com");
+        assert_eq!(proxy["cipher"].as_str().unwrap(), "2022-blake3-aes-128-gcm");
+        assert_eq!(
+            proxy["password"].as_str().unwrap(),
+            "OWEwZTRmYThhYTM2ZWE4MQ==:YjJmZGRmNTMtNWEzZS00NA=="
+        );
+        assert_eq!(proxy["name"].as_str().unwrap(), "📢 HK");
+        assert_eq!(proxy["plugin"].as_str().unwrap(), "obfs");
+        assert_eq!(proxy["plugin-opts"]["mode"].as_str().unwrap(), "http");
+        assert_eq!(
+            proxy["plugin-opts"]["host"].as_str().unwrap(),
+            "aws.amazon.com"
+        );
+        assert!(proxy["plugin-opts"].get("path").is_none());
+    }
+
+    #[test]
+    fn converts_plain_userinfo_ss_links() {
+        let yaml: Value = serde_yaml::from_str(
+            &normalize_subscription_content("ss://aes-128-gcm:p%40ss@1.1.1.1:8388#Plain")
+                .unwrap()
+                .content,
+        )
+        .unwrap();
+
+        assert_eq!(yaml["proxies"][0]["cipher"].as_str().unwrap(), "aes-128-gcm");
+        assert_eq!(yaml["proxies"][0]["password"].as_str().unwrap(), "p@ss");
+        assert_eq!(yaml["proxies"][0]["name"].as_str().unwrap(), "Plain");
+    }
+
+    #[test]
+    fn maps_trojan_sni_and_keeps_vless_servername() {
+        let subscription = [
+            "trojan://pass@example.com:443?sni=cdn.example.com&allowInsecure=1#T1",
+            "vless://123e4567-e89b-12d3-a456-426614174000@example.com:443?security=tls&sni=v.example.com#V1",
+        ]
+        .join("\n");
+        let yaml: Value =
+            serde_yaml::from_str(&normalize_subscription_content(&subscription).unwrap().content).unwrap();
+
+        assert_eq!(
+            yaml["proxies"][0]["sni"].as_str().unwrap(),
+            "cdn.example.com"
+        );
+        assert!(yaml["proxies"][0].get("servername").is_none());
+        assert_eq!(
+            yaml["proxies"][1]["servername"].as_str().unwrap(),
+            "v.example.com"
+        );
+    }
+
+    #[test]
+    fn skips_malformed_share_links_and_keeps_valid_ones() {
+        let subscription = ["ss://!!!not-a-valid-link", "hy2://password@example.com:8443#OK"]
+            .join("\n");
+        let normalized = normalize_subscription_content(&subscription).unwrap();
+        assert_eq!(normalized.skipped_links, 1);
+        let yaml: Value = serde_yaml::from_str(&normalized.content).unwrap();
+
+        let proxies = yaml["proxies"].as_sequence().unwrap();
+        assert_eq!(proxies.len(), 1);
+        assert_eq!(proxies[0]["name"].as_str().unwrap(), "OK");
+    }
+
+    #[test]
+    fn fails_with_underlying_error_when_all_links_are_malformed() {
+        let error = normalize_subscription_content("ss://!!!not-a-valid-link").unwrap_err();
+        let message = format!("{:#}", error);
+        assert!(message.contains("Invalid ss link at line 1"), "{message}");
+    }
+
+    #[test]
+    fn vmess_json_skips_empty_host_and_maps_fingerprint() {
+        let config = r#"{"v":"2","ps":"香港节点","add":"1.2.3.4","port":"19999","id":"123e4567-e89b-12d3-a456-426614174000","aid":"0","scy":"auto","net":"tcp","type":"none","host":"","path":"","tls":"","fp":"chrome"}"#;
+        let link = format!("vmess://{}", general_purpose::STANDARD_NO_PAD.encode(config));
+        let yaml: Value =
+            serde_yaml::from_str(&normalize_subscription_content(&link).unwrap().content).unwrap();
+
+        let proxy = &yaml["proxies"][0];
+        assert_eq!(proxy["name"].as_str().unwrap(), "香港节点");
+        assert_eq!(proxy["port"].as_u64().unwrap(), 19999);
+        assert!(proxy.get("servername").is_none());
+        assert_eq!(proxy["client-fingerprint"].as_str().unwrap(), "chrome");
+    }
+
     #[test]
     fn injects_default_proxy_groups_for_yaml_proxy_list() {
         let normalized = normalize_subscription_content(
             "proxies:\n  - name: HK\n    type: ss\n    server: 1.1.1.1\n    port: 443\n    cipher: aes-128-gcm\n    password: pass\n",
         )
         .unwrap();
-        let yaml: Value = serde_yaml::from_str(&normalized).unwrap();
+        let yaml: Value = serde_yaml::from_str(&normalized.content).unwrap();
 
         let groups = yaml["proxy-groups"].as_sequence().unwrap();
         assert_eq!(groups.len(), 2);
@@ -1676,7 +2014,7 @@ rules:
 "#,
         )
         .unwrap();
-        let yaml: Value = serde_yaml::from_str(&normalized).unwrap();
+        let yaml: Value = serde_yaml::from_str(&normalized.content).unwrap();
 
         let groups = yaml["proxy-groups"].as_sequence().unwrap();
         assert_eq!(groups.len(), 3);
@@ -1689,7 +2027,7 @@ rules:
     fn converts_base64_share_links_to_mihomo_yaml() {
         let subscription = "ss://YWVzLTEyOC1nY206cGFzc0AxLjEuMS4xOjQ0Mw==#HK";
         let encoded = general_purpose::STANDARD.encode(subscription);
-        let normalized = normalize_subscription_content(&encoded).unwrap();
+        let normalized = normalize_subscription_content(&encoded).unwrap().content;
         let yaml: Value = serde_yaml::from_str(&normalized).unwrap();
 
         assert_eq!(yaml["proxies"][0]["name"].as_str().unwrap(), "HK");
@@ -1707,7 +2045,7 @@ rules:
         );
         let link = format!("ssr://{}", general_purpose::URL_SAFE_NO_PAD.encode(payload));
         let yaml: Value =
-            serde_yaml::from_str(&normalize_subscription_content(&link).unwrap()).unwrap();
+            serde_yaml::from_str(&normalize_subscription_content(&link).unwrap().content).unwrap();
 
         assert_eq!(yaml["proxies"][0]["type"].as_str().unwrap(), "ssr");
         assert_eq!(yaml["proxies"][0]["name"].as_str().unwrap(), "SSR-HK");
@@ -1721,7 +2059,7 @@ rules:
     fn converts_vmess_aead_links_to_mihomo_yaml() {
         let link = "vmess://123e4567-e89b-12d3-a456-426614174000@example.com:443?security=tls&type=ws&host=cdn.example.com&path=%2Fws&fp=chrome#VMess";
         let yaml: Value =
-            serde_yaml::from_str(&normalize_subscription_content(link).unwrap()).unwrap();
+            serde_yaml::from_str(&normalize_subscription_content(link).unwrap().content).unwrap();
 
         assert_eq!(yaml["proxies"][0]["type"].as_str().unwrap(), "vmess");
         assert_eq!(yaml["proxies"][0]["network"].as_str().unwrap(), "ws");
@@ -1743,7 +2081,7 @@ rules:
         ]
         .join("\n");
         let yaml: Value =
-            serde_yaml::from_str(&normalize_subscription_content(&subscription).unwrap()).unwrap();
+            serde_yaml::from_str(&normalize_subscription_content(&subscription).unwrap().content).unwrap();
 
         assert_eq!(yaml["proxies"][0]["type"].as_str().unwrap(), "hysteria2");
         assert_eq!(yaml["proxies"][0]["obfs"].as_str().unwrap(), "salamander");
@@ -1769,7 +2107,7 @@ rules:
         ]
         .join("\n");
         let yaml: Value =
-            serde_yaml::from_str(&normalize_subscription_content(&subscription).unwrap()).unwrap();
+            serde_yaml::from_str(&normalize_subscription_content(&subscription).unwrap().content).unwrap();
 
         assert_eq!(yaml["proxies"][0]["type"].as_str().unwrap(), "http");
         assert_eq!(yaml["proxies"][0]["tls"].as_bool().unwrap(), true);

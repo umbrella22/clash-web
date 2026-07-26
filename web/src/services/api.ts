@@ -176,6 +176,7 @@ export interface SubscriptionUpdateDetail {
   http_status?: number | null;
   error?: string | null;
   downloaded_bytes: number;
+  skipped_links?: number;
   kept_old: boolean;
 }
 

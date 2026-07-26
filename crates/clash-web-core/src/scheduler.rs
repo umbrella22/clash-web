@@ -82,6 +82,7 @@ impl SubscriptionScheduler {
                                                 http_status: Some(result.http_status),
                                                 error: None,
                                                 downloaded_bytes: result.downloaded_bytes,
+                                                skipped_links: result.skipped_links,
                                                 kept_old: false,
                                             };
                                             if let Err(e) = profiles.update_subscription_result(
@@ -99,8 +100,9 @@ impl SubscriptionScheduler {
                                                 updated_at: chrono::Utc::now().timestamp(),
                                                 attempts: attempted,
                                                 http_status: None,
-                                                error: Some(format!("Failed to download: {}", e)),
+                                                error: Some(format!("Failed to download: {:#}", e)),
                                                 downloaded_bytes: 0,
+                                                skipped_links: 0,
                                                 kept_old: false,
                                             };
                                             if let Err(update_error) = profiles.update_subscription_result(
@@ -110,7 +112,7 @@ impl SubscriptionScheduler {
                                             ).await {
                                                 warn!("Failed to record subscription error for {}: {}", item.name, update_error);
                                             }
-                                            warn!("Failed to download subscription for {}: {}", item.name, e);
+                                            warn!("Failed to download subscription for {}: {:#}", item.name, e);
                                         }
                                     }
                                 }

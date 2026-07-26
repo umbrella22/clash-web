@@ -159,6 +159,7 @@
     "edit_file": "编辑 YAML 文件",
     "advanced_subscription": "高级订阅选项",
     "user_agent": "User-Agent",
+    "user_agent_help": "留空使用默认的 mihomo 兼容 User-Agent（推荐，可获取完整节点列表）",
     "request_headers": "请求头",
     "request_headers_placeholder": "Authorization: Bearer token\nX-Client: clash-web",
     "request_headers_help": "每行一个请求头，格式为名称: 值",
@@ -174,6 +175,7 @@
     "subscription_update_success": "成功",
     "subscription_update_failed": "失败",
     "subscription_update_attempts": "尝试 {{count}} 次",
+    "subscription_skipped_links": "跳过 {{count}} 个无法解析的节点",
     "subscription_kept_old": "已保留旧配置"
   },
   "connections": {

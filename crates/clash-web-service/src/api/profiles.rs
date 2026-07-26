@@ -399,7 +399,7 @@ pub async fn create_profile(
         let options = subscription_download_options(&state, extra).await;
         let result = download_subscription_with_options(url, ua, options)
             .await
-            .map_err(|e| AppError::BadRequest(format!("Failed to download: {}", e)))?;
+            .map_err(|e| AppError::BadRequest(format!("Failed to download: {:#}", e)))?;
         state
             .profiles
             .write_file(&created.uid, &result.content)
@@ -419,6 +419,7 @@ pub async fn create_profile(
             http_status: Some(result.http_status),
             error: None,
             downloaded_bytes: result.downloaded_bytes,
+            skipped_links: result.skipped_links,
             kept_old: false,
         };
         state
@@ -532,8 +533,9 @@ pub async fn update_subscription(
                 updated_at: chrono::Utc::now().timestamp(),
                 attempts: attempted,
                 http_status: None,
-                error: Some(format!("Failed to download: {}", e)),
+                error: Some(format!("Failed to download: {:#}", e)),
                 downloaded_bytes: 0,
+                skipped_links: 0,
                 kept_old: true,
             };
             state
@@ -552,15 +554,16 @@ pub async fn update_subscription(
                 updated_at: chrono::Utc::now().timestamp(),
                 attempts: attempted,
                 http_status: None,
-                error: Some(format!("Failed to download: {}", e)),
+                error: Some(format!("Failed to download: {:#}", e)),
                 downloaded_bytes: 0,
+                skipped_links: 0,
                 kept_old: false,
             };
             let _ = state
                 .profiles
                 .update_subscription_result(&uid, None, detail)
                 .await;
-            return Err(AppError::Internal(format!("Failed to download: {}", e)));
+            return Err(AppError::Internal(format!("Failed to download: {:#}", e)));
         }
     };
 
@@ -593,6 +596,7 @@ pub async fn update_subscription(
         http_status: Some(result.http_status),
         error: None,
         downloaded_bytes: result.downloaded_bytes,
+        skipped_links: result.skipped_links,
         kept_old: false,
     };
 

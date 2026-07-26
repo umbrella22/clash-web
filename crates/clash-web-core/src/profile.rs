@@ -98,6 +98,8 @@ pub struct SubscriptionUpdateDetail {
     #[serde(default)]
     pub downloaded_bytes: u64,
     #[serde(default)]
+    pub skipped_links: u32,
+    #[serde(default)]
     pub kept_old: bool,
 }
 
@@ -296,6 +298,7 @@ mod tests {
                     http_status: Some(200),
                     error: None,
                     downloaded_bytes: 42,
+                    skipped_links: 0,
                     kept_old: false,
                 },
             )
@@ -321,6 +324,7 @@ mod tests {
                     attempts: 2,
                     http_status: None,
                     error: Some("failed".into()),
+                    skipped_links: 0,
                     downloaded_bytes: 0,
                     kept_old: true,
                 },

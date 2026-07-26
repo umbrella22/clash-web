@@ -159,6 +159,7 @@
     "edit_file": "Edit YAML File",
     "advanced_subscription": "Advanced Subscription Options",
     "user_agent": "User-Agent",
+    "user_agent_help": "Leave empty to use the default mihomo-compatible User-Agent (recommended, gets the full node list)",
     "request_headers": "Request Headers",
     "request_headers_placeholder": "Authorization: Bearer token\nX-Client: clash-web",
     "request_headers_help": "One header per line, using Name: Value",
@@ -174,6 +175,7 @@
     "subscription_update_success": "Success",
     "subscription_update_failed": "Failed",
     "subscription_update_attempts": "{{count}} attempts",
+    "subscription_skipped_links": "{{count}} unparsable node(s) skipped",
     "subscription_kept_old": "Kept old config"
   },
   "connections": {

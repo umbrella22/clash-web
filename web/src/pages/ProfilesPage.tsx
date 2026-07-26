@@ -85,6 +85,9 @@ function formatSubscriptionStatus(profile: ProfileItem, t: TFunction): string {
   if (detail.http_status) parts.push(`HTTP ${detail.http_status}`);
   parts.push(t("profiles.subscription_update_attempts", { count: detail.attempts }));
   parts.push(formatBytes(detail.downloaded_bytes));
+  if (detail.skipped_links) {
+    parts.push(t("profiles.subscription_skipped_links", { count: detail.skipped_links }));
+  }
   if (detail.kept_old) parts.push(t("profiles.subscription_kept_old"));
 
   return parts.join(" · ");
@@ -687,6 +690,8 @@ function ProfileAdvancedOptions({
           label={t("profiles.user_agent")}
           value={extra.user_agent ?? ""}
           onChange={(e) => updateExtra({ user_agent: e.target.value })}
+          placeholder="clash-web/v0.1.0 clash-verge clash.meta mihomo"
+          helperText={t("profiles.user_agent_help")}
           fullWidth
           size="small"
         />
