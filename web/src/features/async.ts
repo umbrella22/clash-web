@@ -1,7 +1,8 @@
 export async function runWithConcurrency<T, R>(
   items: T[],
   limit: number,
-  worker: (item: T, index: number) => Promise<R>
+  worker: (item: T, index: number) => Promise<R>,
+  onSettled?: (index: number, result: PromiseSettledResult<R>) => void
 ): Promise<PromiseSettledResult<R>[]> {
   if (items.length === 0) return [];
 
@@ -25,6 +26,10 @@ export async function runWithConcurrency<T, R>(
         reason,
       };
     }
+
+    // Stream each result to the caller as soon as it settles so UIs can
+    // update live instead of waiting for the whole batch.
+    onSettled?.(currentIndex, results[currentIndex]);
 
     await runNext();
   }

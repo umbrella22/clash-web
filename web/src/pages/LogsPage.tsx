@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Box,
+  Button,
   Typography,
   TextField,
   InputAdornment,
@@ -14,30 +15,61 @@ import {
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import SearchIcon from "@mui/icons-material/Search";
+import PauseIcon from "@mui/icons-material/Pause";
+import PlayArrowIcon from "@mui/icons-material/PlayArrow";
+import DeleteSweepIcon from "@mui/icons-material/DeleteSweep";
+import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import { createLogsWs } from "../services/api";
 import { PageTitle, SystemPanel } from "../components/SystemChrome";
 import {
   appendLogs,
   filterLogs,
+  formatLogTime,
   getVisibleLogs,
+  stampLog,
+  LOG_BUFFER_LIMIT,
   LOG_FLUSH_INTERVAL_MS,
   type LogEntry,
+  type LogRecord,
 } from "../features/logs";
+
+// Mirrors the theme's monoFont stack (theme/index.ts does not export it).
+const MONO_FONT =
+  '"JetBrains Mono Variable", "JetBrains Mono", "SFMono-Regular", "Cascadia Code", "Courier New", monospace';
+
+const AT_BOTTOM_THRESHOLD_PX = 40;
+
+type StreamStatus = "connecting" | "open" | "reconnecting";
 
 export default function LogsPage() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<LogRecord[]>([]);
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [paused, setPaused] = useState(false);
+  const [unseenCount, setUnseenCount] = useState(0);
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>("connecting");
   const listRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const pendingLogsRef = useRef<LogEntry[]>([]);
+  const pendingLogsRef = useRef<LogRecord[]>([]);
   const flushTimerRef = useRef<number | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
   const mountedRef = useRef(false);
+  const pausedRef = useRef(false);
+  const atBottomRef = useRef(true);
+  const logIdRef = useRef(0);
+  // Mirrors for the zero-dep flush callback: the jump-to-latest pill must
+  // count only entries the active filter/search would actually show.
+  const filterRef = useRef(filter);
+  const searchRef = useRef(search);
+  useEffect(() => {
+    filterRef.current = filter;
+    searchRef.current = search;
+    setUnseenCount(0);
+  }, [filter, search]);
   const isDark = theme.palette.mode === "dark";
   const accentColor = isDark ? "#7ee787" : theme.palette.primary.main;
   const mutedColor = theme.palette.text.secondary;
@@ -50,17 +82,25 @@ export default function LogsPage() {
   };
 
   const flushPendingLogs = useCallback(() => {
+    if (pausedRef.current) return;
     if (pendingLogsRef.current.length === 0) return;
     const pending = pendingLogsRef.current;
     pendingLogsRef.current = [];
     setLogs((prev) => appendLogs(prev, pending));
-    if (scrollFrameRef.current !== null) {
-      cancelAnimationFrame(scrollFrameRef.current);
+    if (atBottomRef.current) {
+      if (scrollFrameRef.current !== null) {
+        cancelAnimationFrame(scrollFrameRef.current);
+      }
+      scrollFrameRef.current = requestAnimationFrame(() => {
+        scrollFrameRef.current = null;
+        if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+      });
+    } else {
+      const matched = filterLogs(pending, filterRef.current, searchRef.current).length;
+      if (matched > 0) {
+        setUnseenCount((count) => count + matched);
+      }
     }
-    scrollFrameRef.current = requestAnimationFrame(() => {
-      scrollFrameRef.current = null;
-      if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-    });
   }, []);
 
   const connect = useCallback(() => {
@@ -69,12 +109,19 @@ export default function LogsPage() {
     wsRef.current = ws;
     ws.onopen = () => {
       reconnectAttemptRef.current = 0;
+      if (mountedRef.current) setStreamStatus("open");
     };
     ws.onmessage = (e) => {
       try {
         const entry: LogEntry = JSON.parse(e.data);
-        pendingLogsRef.current.push(entry);
-        if (flushTimerRef.current === null) {
+        logIdRef.current += 1;
+        pendingLogsRef.current.push(stampLog(entry, logIdRef.current, Date.now()));
+        // While paused the pending buffer keeps growing; cap it so a long
+        // pause cannot leak memory (oldest pending entries are dropped).
+        if (pendingLogsRef.current.length > LOG_BUFFER_LIMIT) {
+          pendingLogsRef.current.splice(0, pendingLogsRef.current.length - LOG_BUFFER_LIMIT);
+        }
+        if (!pausedRef.current && flushTimerRef.current === null) {
           flushTimerRef.current = window.setTimeout(() => {
             flushTimerRef.current = null;
             flushPendingLogs();
@@ -87,6 +134,7 @@ export default function LogsPage() {
         wsRef.current = null;
       }
       if (!mountedRef.current || reconnectTimerRef.current !== null) return;
+      setStreamStatus("reconnecting");
       const delay = Math.min(1000 * 2 ** reconnectAttemptRef.current, 10000);
       reconnectAttemptRef.current += 1;
       reconnectTimerRef.current = window.setTimeout(() => {
@@ -119,9 +167,49 @@ export default function LogsPage() {
     };
   }, [connect]);
 
+  const handleScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_THRESHOLD_PX;
+    atBottomRef.current = atBottom;
+    if (atBottom) setUnseenCount(0);
+  }, []);
+
+  const jumpToLatest = useCallback(() => {
+    atBottomRef.current = true;
+    setUnseenCount(0);
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, []);
+
+  const togglePause = useCallback(() => {
+    const next = !pausedRef.current;
+    pausedRef.current = next;
+    setPaused(next);
+    // Entries received while paused stay in the pending buffer; flush them
+    // into the visible list on resume.
+    if (!next) flushPendingLogs();
+  }, [flushPendingLogs]);
+
+  const handleClear = useCallback(() => {
+    pendingLogsRef.current = [];
+    setLogs([]);
+    setUnseenCount(0);
+    atBottomRef.current = true;
+  }, []);
+
   const filtered = useMemo(() => filterLogs(logs, filter, search), [filter, logs, search]);
   const visibleLogs = useMemo(() => getVisibleLogs(filtered), [filtered]);
-  const hiddenCount = filtered.length - visibleLogs.length;
+
+  const statusText =
+    streamStatus === "connecting"
+      ? t("logs.connecting")
+      : streamStatus === "reconnecting"
+        ? t("logs.reconnecting")
+        : logs.length === 0
+          ? t("logs.waiting")
+          : null;
+  const statusColor = streamStatus === "reconnecting" ? theme.palette.warning.main : mutedColor;
 
   return (
     <Box>
@@ -133,11 +221,11 @@ export default function LogsPage() {
             {(["all", "info", "warning", "error", "debug"] as const).map((level) => (
               <Chip
                 key={level}
-                label={level === "all" ? "All" : t(`logs.${level}`)}
+                label={level === "all" ? t("common.all") : t(`logs.${level}`)}
                 size="small"
                 variant={filter === level ? "filled" : "outlined"}
                 onClick={() => setFilter(level)}
-                sx={{ fontFamily: '"Courier New", monospace' }}
+                sx={{ fontFamily: MONO_FONT }}
               />
             ))}
           </Box>
@@ -172,12 +260,36 @@ export default function LogsPage() {
         <Box sx={{ p: 2.25, position: "relative", zIndex: 1 }}>
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 2, flexWrap: "wrap", mb: 1.5 }}>
             <Box>
-              <Typography sx={{ fontFamily: '"Courier New", monospace', fontWeight: 700, letterSpacing: "0.12em", color: accentColor }}>
+              <Typography sx={{ fontFamily: MONO_FONT, fontWeight: 700, letterSpacing: "0.12em", color: accentColor }}>
                 PRTS / SYSTEM LOG STREAM
               </Typography>
-              <Typography variant="caption" sx={{ color: mutedColor, fontFamily: '"Courier New", monospace' }}>
+              <Typography variant="caption" sx={{ color: mutedColor, fontFamily: MONO_FONT }}>
                 realtime websocket relay / buffer {logs.length} entries
               </Typography>
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+              {statusText && (
+                <Typography variant="caption" sx={{ fontFamily: MONO_FONT, color: statusColor }}>
+                  {statusText}
+                </Typography>
+              )}
+              <Button
+                size="small"
+                variant={paused ? "contained" : "outlined"}
+                color={paused ? "warning" : "primary"}
+                startIcon={paused ? <PlayArrowIcon /> : <PauseIcon />}
+                onClick={togglePause}
+              >
+                {paused ? t("logs.resume") : t("logs.pause")}
+              </Button>
+              <Button
+                size="small"
+                variant="outlined"
+                startIcon={<DeleteSweepIcon />}
+                onClick={handleClear}
+              >
+                {t("logs.clear")}
+              </Button>
             </Box>
           </Box>
 
@@ -194,7 +306,7 @@ export default function LogsPage() {
                 backgroundColor: isDark
                   ? alpha("#ffffff", 0.02)
                   : alpha(theme.palette.background.default, 0.48),
-                fontFamily: '"Courier New", monospace',
+                fontFamily: MONO_FONT,
               },
               "& .MuiOutlinedInput-notchedOutline": {
                 borderColor: alpha(accentColor, isDark ? 0.2 : 0.18),
@@ -209,43 +321,63 @@ export default function LogsPage() {
             }}
           />
 
-          <Paper
-            variant="outlined"
-            sx={{
-              height: "calc(100vh - 300px)",
-              overflow: "auto",
-              borderRadius: 0,
-              borderColor: alpha(accentColor, isDark ? 0.15 : 0.14),
-              backgroundColor: isDark
-                ? "rgba(0, 0, 0, 0.25)"
-                : alpha(theme.palette.background.default, 0.32),
-            }}
-            ref={listRef}
-          >
-            <List dense disablePadding>
-              {visibleLogs.map((l, i) => {
-                const logIndex = hiddenCount + i;
-                return (
-                <Box key={`${logIndex}-${l.type}-${l.payload}`}>
-                  <ListItem sx={{ py: 0.65, px: 1.5, alignItems: "flex-start" }}>
-                    <Box sx={{ display: "grid", gridTemplateColumns: "88px 82px 1fr", gap: 1.5, width: "100%" }}>
-                      <Typography variant="caption" sx={{ fontFamily: '"Courier New", monospace', color: mutedColor }}>
-                        #{String(logIndex + 1).padStart(4, "0")}
-                      </Typography>
-                      <Typography variant="caption" sx={{ fontFamily: '"Courier New", monospace', color: logColors[l.type] ?? panelTextColor, fontWeight: 700 }}>
-                        [{l.type.toUpperCase()}]
-                      </Typography>
-                      <Typography variant="caption" sx={{ fontFamily: '"Courier New", monospace', color: panelTextColor, lineHeight: 1.8, wordBreak: "break-word" }}>
-                        {l.payload}
-                      </Typography>
-                    </Box>
-                  </ListItem>
-                  {i < visibleLogs.length - 1 && <Divider sx={{ borderColor: alpha(accentColor, isDark ? 0.08 : 0.1) }} />}
-                </Box>
-                );
-              })}
-            </List>
-          </Paper>
+          <Box sx={{ position: "relative" }}>
+            <Paper
+              variant="outlined"
+              sx={{
+                height: "calc(100vh - 300px)",
+                overflow: "auto",
+                borderRadius: 0,
+                borderColor: alpha(accentColor, isDark ? 0.15 : 0.14),
+                backgroundColor: isDark
+                  ? "rgba(0, 0, 0, 0.25)"
+                  : alpha(theme.palette.background.default, 0.32),
+              }}
+              ref={listRef}
+              onScroll={handleScroll}
+            >
+              <List dense disablePadding>
+                {visibleLogs.map((l, i) => (
+                  <Box key={l.id}>
+                    <ListItem sx={{ py: 0.65, px: 1.5, alignItems: "flex-start" }}>
+                      <Box sx={{ display: "grid", gridTemplateColumns: "72px 76px 82px 1fr", gap: 1.5, width: "100%" }}>
+                        <Typography variant="caption" sx={{ fontFamily: MONO_FONT, color: mutedColor }}>
+                          #{String(l.id).padStart(4, "0")}
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontFamily: MONO_FONT, color: mutedColor }}>
+                          {formatLogTime(l.receivedAt)}
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontFamily: MONO_FONT, color: logColors[l.type] ?? panelTextColor, fontWeight: 700 }}>
+                          [{l.type.toUpperCase()}]
+                        </Typography>
+                        <Typography variant="caption" sx={{ fontFamily: MONO_FONT, color: panelTextColor, lineHeight: 1.8, wordBreak: "break-word" }}>
+                          {l.payload}
+                        </Typography>
+                      </Box>
+                    </ListItem>
+                    {i < visibleLogs.length - 1 && <Divider sx={{ borderColor: alpha(accentColor, isDark ? 0.08 : 0.1) }} />}
+                  </Box>
+                ))}
+              </List>
+            </Paper>
+            {unseenCount > 0 && (
+              <Chip
+                label={t("logs.jump_to_latest", { count: unseenCount })}
+                size="small"
+                color="primary"
+                icon={<ArrowDownwardIcon />}
+                onClick={jumpToLatest}
+                sx={{
+                  position: "absolute",
+                  bottom: 12,
+                  left: "50%",
+                  transform: "translateX(-50%)",
+                  zIndex: 2,
+                  fontFamily: MONO_FONT,
+                }}
+              />
+            )}
+          </Box>
         </Box>
       </SystemPanel>
     </Box>

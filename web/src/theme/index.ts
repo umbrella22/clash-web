@@ -1,6 +1,7 @@
 import { alpha, createTheme } from "@mui/material/styles";
 
 const monoFont = [
+  '"JetBrains Mono Variable"',
   '"JetBrains Mono"',
   '"SFMono-Regular"',
   '"Cascadia Code"',
@@ -9,6 +10,7 @@ const monoFont = [
 ].join(",");
 
 const sansFont = [
+  '"Inter Variable"',
   '"Inter"',
   '"Segoe UI"',
   "Roboto",
@@ -203,10 +205,10 @@ function createClashTheme(mode: "light" | "dark") {
                 : "0 22px 50px rgba(31, 28, 24, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.94)",
             },
             '&[data-card-trace="enter"]': {
-              animation: "card-perimeter-enter 680ms cubic-bezier(0.45, 0, 0.55, 1) both",
+              animation: "card-perimeter-enter 360ms cubic-bezier(0.2, 0, 0, 1) both",
             },
             '&[data-card-trace="leave"]': {
-              animation: "card-perimeter-leave 800ms cubic-bezier(0.45, 0, 0.55, 1) both",
+              animation: "card-perimeter-leave 280ms cubic-bezier(0.2, 0, 0, 1) both",
             },
             "@media (prefers-reduced-motion: reduce)": {
               transition: "none",
@@ -232,6 +234,7 @@ function createClashTheme(mode: "light" | "dark") {
             boxShadow: "none",
             transitionProperty: "background-color, border-color, color, transform",
             transitionDuration: "150ms",
+            transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
             "&:active": { transform: "scale(0.98)" },
           },
           contained: {
@@ -253,6 +256,7 @@ function createClashTheme(mode: "light" | "dark") {
             border: `1px solid ${alpha(space.ink, isDark ? 0.22 : 0.18)}`,
             transitionProperty: "background-color, border-color, color, transform",
             transitionDuration: "150ms",
+            transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
             "&:hover": { borderColor: space.signal, backgroundColor: alpha(space.signal, isDark ? 0.11 : 0.07) },
             "&:active": { transform: "scale(0.96)" },
           },
@@ -268,6 +272,9 @@ function createClashTheme(mode: "light" | "dark") {
             fontWeight: 700,
             letterSpacing: "0.035em",
             borderColor: alpha(space.ink, isDark ? 0.22 : 0.2),
+            transitionProperty: "background-color, border-color, color",
+            transitionDuration: "150ms",
+            transitionTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
           },
         },
       },

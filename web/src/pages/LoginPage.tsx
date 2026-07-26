@@ -131,6 +131,15 @@ export default function LoginPage() {
   const successTimerRef = useRef<number | null>(null);
   const loadingIntervalRef = useRef<number | null>(null);
   const navigateTimerRef = useRef<number | null>(null);
+  const tokenInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Focus only once the input has finished its reveal animation (2.08s delay
+  // + 0.35s duration) — focusing an invisible field lets users type blind.
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setTimeout(() => tokenInputRef.current?.focus(), 2450);
+    return () => window.clearTimeout(timer);
+  }, [active]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setActive(true), 160);
@@ -622,7 +631,7 @@ export default function LoginPage() {
               y="75"
               textAnchor="middle"
               sx={{
-                fontFamily: '"Courier New", monospace',
+                fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace',
                 fontSize: 12,
                 fontWeight: "bold",
                 fill: heroLine,
@@ -636,7 +645,7 @@ export default function LoginPage() {
               y="105"
               textAnchor="middle"
               sx={{
-                fontFamily: '"Courier New", monospace',
+                fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace',
                 fontWeight: "bold",
                 fontSize: 24,
                 fill: isComplete ? heroAccent : heroPrimary,
@@ -649,7 +658,7 @@ export default function LoginPage() {
               y="120"
               textAnchor="middle"
               sx={{
-                fontFamily: '"Courier New", monospace',
+                fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace',
                 fontSize: 10,
                 fill: isComplete ? heroAccent : heroMuted,
               }}
@@ -703,7 +712,7 @@ export default function LoginPage() {
               <TextField
                 type="password"
                 fullWidth
-                autoFocus
+                inputRef={tokenInputRef}
                 value={token}
                 onChange={(event) => setToken(event.target.value)}
                 placeholder={t("auth.token")}
@@ -716,7 +725,7 @@ export default function LoginPage() {
                     height: "100%",
                     px: 1.5,
                     backgroundColor: "transparent",
-                    fontFamily: '"Courier New", monospace',
+                    fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace',
                     fontSize: 18,
                     fontWeight: "bold",
                     color: error ? "error.main" : "text.primary",
@@ -808,7 +817,7 @@ export default function LoginPage() {
               opacity: 0,
               animation: active ? `${simpleFade} 0.5s ease forwards` : "none",
               animationDelay: "2.4s",
-              fontFamily: '"Courier New", monospace',
+              fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace',
               fontSize: 12,
               lineHeight: "20px",
               letterSpacing: "0.08em",

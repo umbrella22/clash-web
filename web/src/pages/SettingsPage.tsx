@@ -18,6 +18,11 @@ import {
   LinearProgress,
   Alert,
   CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
   type AlertColor,
 } from "@mui/material";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -34,7 +39,10 @@ import {
   getTunMode,
   setTunMode,
   setStoredToken,
+  loginWithToken,
 } from "../services/api";
+import { useToast } from "../components/toastContext";
+import { formatApiError } from "../utils/errors";
 import { useThemeContext } from "../App";
 import { useState, useEffect, type ReactNode } from "react";
 import {
@@ -93,19 +101,6 @@ type ActionMessage = {
   severity: AlertColor;
   text: string;
 };
-
-function formatActionError(error: unknown, fallback: string): string {
-  if (typeof error === "object" && error && "response" in error) {
-    const response = error.response as { data?: { error?: string } } | undefined;
-    if (response?.data?.error) return response.data.error;
-  }
-
-  if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
-    return error.message || fallback;
-  }
-
-  return fallback;
-}
 
 function downloadTextFile(filename: string, content: string) {
   const blob = new Blob([content], { type: "text/yaml;charset=utf-8" });
@@ -169,10 +164,43 @@ function SettingsSectionCard({
   );
 }
 
+function ConfirmDialog({
+  open,
+  title,
+  text,
+  confirmColor = "primary",
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  title?: string;
+  text: string;
+  confirmColor?: "primary" | "error" | "warning";
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <Dialog open={open} onClose={onCancel} maxWidth="xs" fullWidth>
+      {title ? <DialogTitle>{title}</DialogTitle> : null}
+      <DialogContent>
+        <DialogContentText>{text}</DialogContentText>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onCancel}>{t("common.cancel")}</Button>
+        <Button variant="contained" color={confirmColor} onClick={onConfirm}>
+          {t("common.confirm")}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 export default function SettingsPage() {
   const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const { mode, setThemeMode } = useThemeContext();
+  const showToast = useToast();
 
   const { data: config } = useQuery({
     queryKey: ["runtimeConfig"],
@@ -189,6 +217,8 @@ export default function SettingsPage() {
   const [logLevel, setLogLevel] = useState("info");
   const [ipv6, setIpv6] = useState(false);
   const [accessToken, setAccessToken] = useState(getStoredToken());
+  const [savedToken, setSavedToken] = useState(getStoredToken());
+  const [tokenSaving, setTokenSaving] = useState(false);
 
   useEffect(() => {
     if (config) {
@@ -200,12 +230,40 @@ export default function SettingsPage() {
   }, [config]);
 
   const handleSaveClash = () => {
-    patchMut.mutate({
-      "mixed-port": mixedPort,
-      "allow-lan": allowLan,
-      "log-level": logLevel,
-      ipv6,
-    });
+    patchMut.mutate(
+      {
+        "mixed-port": mixedPort,
+        "allow-lan": allowLan,
+        "log-level": logLevel,
+        ipv6,
+      },
+      {
+        onSuccess: () => showToast({ message: t("settings.saved"), severity: "success" }),
+        onError: (error) =>
+          showToast({ message: formatApiError(error, t("settings.save_failed")), severity: "error" }),
+      }
+    );
+  };
+
+  const handleSaveToken = async () => {
+    const token = accessToken.trim();
+    setTokenSaving(true);
+    try {
+      if (!token) {
+        clearStoredToken();
+        setSavedToken("");
+      } else {
+        // Verify the token against the backend before persisting it locally.
+        await loginWithToken(token);
+        setStoredToken(token);
+        setSavedToken(token);
+      }
+      showToast({ message: t("settings.saved"), severity: "success" });
+    } catch (error) {
+      showToast({ message: formatApiError(error, t("settings.save_failed")), severity: "error" });
+    } finally {
+      setTokenSaving(false);
+    }
   };
 
   return (
@@ -289,8 +347,8 @@ export default function SettingsPage() {
                 <Chip size="small" label={`${t("settings.theme")}: ${mode === "dark" ? t("settings.dark") : t("settings.light")}`} />
                 <Chip
                   size="small"
-                  color={accessToken ? "success" : "default"}
-                  label={accessToken ? t("settings.token_saved") : t("settings.token_empty")}
+                  color={savedToken ? "success" : "default"}
+                  label={savedToken ? t("settings.token_saved") : t("settings.token_empty")}
                 />
               </Box>
             }
@@ -325,22 +383,26 @@ export default function SettingsPage() {
               </FormControl>
             </Box>
             <Box sx={sectionPanelSx}>
-              <TextField
-                label={t("settings.access_token")}
-                size="small"
-                fullWidth
-                type="password"
-                value={accessToken}
-                onChange={(e) => setAccessToken(e.target.value)}
-                onBlur={(e) => {
-                  if (e.target.value) {
-                    setStoredToken(e.target.value);
-                  } else {
-                    clearStoredToken();
-                  }
-                }}
-                sx={{ mb: 0 }}
-              />
+              <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                <TextField
+                  label={t("settings.access_token")}
+                  size="small"
+                  fullWidth
+                  type="password"
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                  sx={{ mb: 0 }}
+                />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => void handleSaveToken()}
+                  disabled={tokenSaving}
+                  sx={{ flexShrink: 0 }}
+                >
+                  {t("settings.save")}
+                </Button>
+              </Box>
             </Box>
           </SettingsSectionCard>
         </Grid>
@@ -369,6 +431,9 @@ function BackupsCard() {
   const deleteMut = useDeleteBackup();
   const [backupName, setBackupName] = useState("");
   const [message, setMessage] = useState<ActionMessage | null>(null);
+  const [confirmAction, setConfirmAction] = useState<
+    { kind: "restore" | "delete"; backup: BackupMetadata } | null
+  >(null);
 
   const backups = data?.backups ?? [];
   const actionPending = createMut.isPending || restoreMut.isPending || deleteMut.isPending;
@@ -382,13 +447,12 @@ function BackupsCard() {
           setMessage({ severity: "success", text: t("settings.backup_created") });
         },
         onError: (error) =>
-          setMessage({ severity: "error", text: formatActionError(error, t("settings.backup_create_failed")) }),
+          setMessage({ severity: "error", text: formatApiError(error, t("settings.backup_create_failed")) }),
       }
     );
   };
 
   const handleRestore = (backup: BackupMetadata) => {
-    if (!window.confirm(t("settings.backup_restore_confirm", { name: backup.name }))) return;
     restoreMut.mutate(backup.id, {
       onSuccess: (response) =>
         setMessage({
@@ -396,17 +460,27 @@ function BackupsCard() {
           text: t("settings.backup_restored", { name: response.data.safety_snapshot.name }),
         }),
       onError: (error) =>
-        setMessage({ severity: "error", text: formatActionError(error, t("settings.backup_restore_failed")) }),
+        setMessage({ severity: "error", text: formatApiError(error, t("settings.backup_restore_failed")) }),
     });
   };
 
   const handleDelete = (backup: BackupMetadata) => {
-    if (!window.confirm(t("settings.backup_delete_confirm", { name: backup.name }))) return;
     deleteMut.mutate(backup.id, {
       onSuccess: () => setMessage({ severity: "success", text: t("settings.backup_deleted") }),
       onError: (error) =>
-        setMessage({ severity: "error", text: formatActionError(error, t("settings.backup_delete_failed")) }),
+        setMessage({ severity: "error", text: formatApiError(error, t("settings.backup_delete_failed")) }),
     });
+  };
+
+  const handleConfirmAction = () => {
+    if (!confirmAction) return;
+    const { kind, backup } = confirmAction;
+    setConfirmAction(null);
+    if (kind === "restore") {
+      handleRestore(backup);
+    } else {
+      handleDelete(backup);
+    }
   };
 
   return (
@@ -472,17 +546,35 @@ function BackupsCard() {
             <Button
               size="small"
               variant="outlined"
-              onClick={() => handleRestore(backup)}
+              onClick={() => setConfirmAction({ kind: "restore", backup })}
               disabled={actionPending || !backup.restorable}
             >
               {t("settings.restore")}
             </Button>
-            <Button size="small" color="error" variant="outlined" onClick={() => handleDelete(backup)} disabled={actionPending}>
+            <Button
+              size="small"
+              color="error"
+              variant="outlined"
+              onClick={() => setConfirmAction({ kind: "delete", backup })}
+              disabled={actionPending}
+            >
               {t("settings.delete")}
             </Button>
           </Box>
         </Box>
       ))}
+      <ConfirmDialog
+        open={confirmAction !== null}
+        title={confirmAction?.backup.name}
+        text={
+          confirmAction?.kind === "delete"
+            ? t("settings.confirm_delete_backup")
+            : t("settings.confirm_restore_backup")
+        }
+        confirmColor={confirmAction?.kind === "delete" ? "error" : "primary"}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={handleConfirmAction}
+      />
     </SettingsSectionCard>
   );
 }
@@ -499,7 +591,7 @@ function RuntimeYamlCard() {
       await navigator.clipboard.writeText(content);
       setMessage({ severity: "success", text: t("settings.runtime_yaml_copied") });
     } catch (error) {
-      setMessage({ severity: "error", text: formatActionError(error, t("settings.runtime_yaml_copy_failed")) });
+      setMessage({ severity: "error", text: formatApiError(error, t("settings.runtime_yaml_copy_failed")) });
     }
   };
 
@@ -551,6 +643,7 @@ function OverviewCardsCard() {
   const saveMut = useSavePreferences();
   const restoreMut = useRestoreDefaultPreferences();
   const [message, setMessage] = useState<ActionMessage | null>(null);
+  const [confirmRestore, setConfirmRestore] = useState(false);
   const cards = normalizeOverviewCards(data?.overview_cards);
 
   const handleSave = (nextCards: typeof cards) => {
@@ -559,7 +652,7 @@ function OverviewCardsCard() {
       {
         onSuccess: () => setMessage({ severity: "success", text: t("settings.overview_cards_saved") }),
         onError: (error) =>
-          setMessage({ severity: "error", text: formatActionError(error, t("settings.overview_cards_save_failed")) }),
+          setMessage({ severity: "error", text: formatApiError(error, t("settings.overview_cards_save_failed")) }),
       }
     );
   };
@@ -582,7 +675,7 @@ function OverviewCardsCard() {
     restoreMut.mutate(undefined, {
       onSuccess: () => setMessage({ severity: "success", text: t("settings.overview_cards_restored") }),
       onError: (error) =>
-        setMessage({ severity: "error", text: formatActionError(error, t("settings.overview_cards_restore_failed")) }),
+        setMessage({ severity: "error", text: formatApiError(error, t("settings.overview_cards_restore_failed")) }),
     });
   };
 
@@ -593,12 +686,29 @@ function OverviewCardsCard() {
       title={t("settings.overview_cards")}
       description={t("settings.overview_cards_desc")}
       headerRight={
-        <Button size="small" variant="outlined" color="warning" onClick={handleRestore} disabled={actionPending}>
+        <Button
+          size="small"
+          variant="outlined"
+          color="warning"
+          onClick={() => setConfirmRestore(true)}
+          disabled={actionPending}
+        >
           {t("settings.restore_default")}
         </Button>
       }
     >
       {message ? <Alert severity={message.severity}>{message.text}</Alert> : null}
+      <ConfirmDialog
+        open={confirmRestore}
+        title={t("settings.restore_default")}
+        text={t("settings.confirm_restore_default")}
+        confirmColor="warning"
+        onCancel={() => setConfirmRestore(false)}
+        onConfirm={() => {
+          setConfirmRestore(false);
+          handleRestore();
+        }}
+      />
       <Grid container spacing={1.5}>
         {OVERVIEW_CARD_IDS.map((id) => {
           const card = cards.find((item) => item.id === id);
@@ -656,6 +766,7 @@ function DnsConfigCard() {
   const restoreMut = useRestoreDefaultDnsConfig();
   const [content, setContent] = useState("");
   const [message, setMessage] = useState<ActionMessage | null>(null);
+  const [confirmRestore, setConfirmRestore] = useState(false);
 
   useEffect(() => {
     if (data?.content !== undefined) setContent(data.content);
@@ -669,7 +780,7 @@ function DnsConfigCard() {
           text: response.data.valid ? t("settings.dns_valid") : t("settings.dns_invalid"),
         }),
       onError: (error) =>
-        setMessage({ severity: "error", text: formatActionError(error, t("settings.dns_validate_failed")) }),
+        setMessage({ severity: "error", text: formatApiError(error, t("settings.dns_validate_failed")) }),
     });
   };
 
@@ -677,7 +788,7 @@ function DnsConfigCard() {
     saveMut.mutate(content, {
       onSuccess: () => setMessage({ severity: "success", text: t("settings.dns_saved") }),
       onError: (error) =>
-        setMessage({ severity: "error", text: formatActionError(error, t("settings.dns_save_failed")) }),
+        setMessage({ severity: "error", text: formatApiError(error, t("settings.dns_save_failed")) }),
     });
   };
 
@@ -685,7 +796,7 @@ function DnsConfigCard() {
     applyMut.mutate(undefined, {
       onSuccess: () => setMessage({ severity: "success", text: t("settings.dns_applied") }),
       onError: (error) =>
-        setMessage({ severity: "error", text: formatActionError(error, t("settings.dns_apply_failed")) }),
+        setMessage({ severity: "error", text: formatApiError(error, t("settings.dns_apply_failed")) }),
     });
   };
 
@@ -696,7 +807,7 @@ function DnsConfigCard() {
         setMessage({ severity: "success", text: t("settings.dns_restored") });
       },
       onError: (error) =>
-        setMessage({ severity: "error", text: formatActionError(error, t("settings.dns_restore_failed")) }),
+        setMessage({ severity: "error", text: formatApiError(error, t("settings.dns_restore_failed")) }),
     });
   };
 
@@ -717,13 +828,29 @@ function DnsConfigCard() {
           <Button variant="outlined" onClick={handleApply} disabled={actionPending || isLoading}>
             {t("settings.apply")}
           </Button>
-          <Button color="warning" variant="outlined" onClick={handleRestore} disabled={actionPending}>
+          <Button
+            color="warning"
+            variant="outlined"
+            onClick={() => setConfirmRestore(true)}
+            disabled={actionPending}
+          >
             {t("settings.restore_default")}
           </Button>
         </Box>
       }
     >
       {message ? <Alert severity={message.severity}>{message.text}</Alert> : null}
+      <ConfirmDialog
+        open={confirmRestore}
+        title={t("settings.restore_default")}
+        text={t("settings.confirm_restore_default")}
+        confirmColor="warning"
+        onCancel={() => setConfirmRestore(false)}
+        onConfirm={() => {
+          setConfirmRestore(false);
+          handleRestore();
+        }}
+      />
       <TextField
         multiline
         fullWidth
@@ -746,7 +873,7 @@ function DnsConfigCard() {
 function MihomoVersionCard() {
   const { t } = useTranslation();
 
-  const { data: version, isLoading, refetch } = useQuery({
+  const { data: version, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["mihomoVersion"],
     queryFn: () => checkMihomoVersion().then((r) => r.data),
     refetchOnMount: "always",
@@ -854,6 +981,20 @@ function MihomoVersionCard() {
           </Box>
         )}
 
+        {isError && (
+          <Alert
+            severity="warning"
+            sx={{ mb: 2 }}
+            action={
+              <Button color="inherit" size="small" onClick={() => void refetch()} disabled={isFetching}>
+                {t("common.retry")}
+              </Button>
+            }
+          >
+            {t("settings.version_check_failed")}
+          </Alert>
+        )}
+
         {actionError && (
           <Alert severity="warning" sx={{ mb: 2 }}>
             {actionError}
@@ -949,7 +1090,9 @@ function MihomoVersionCard() {
         </Box>
 
         <Box sx={{ display: "flex", gap: 1 }}>
-          {version && !version.installed && (
+          {/* The install endpoint resolves its own download URL server-side, so it
+              stays available even when the version check (GitHub API) fails. */}
+          {(version ? !version.installed : isError) && (
             <Button
               variant="contained"
               onClick={handleInstall}
@@ -996,7 +1139,12 @@ function SystemProxyCard() {
 
   const toggle = useMutation({
     mutationFn: (enabled: boolean) => setSystemProxy(enabled),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["systemProxy"] }),
+    onSuccess: () => {
+      setMessage(null);
+      return qc.invalidateQueries({ queryKey: ["systemProxy"] });
+    },
+    onError: (error) =>
+      setMessage({ severity: "error", text: formatApiError(error, t("settings.system_proxy_failed")) }),
   });
 
   const handleCopyProxyEnvironment = async (content: string, successText: string) => {
@@ -1004,7 +1152,7 @@ function SystemProxyCard() {
       await navigator.clipboard.writeText(content);
       setMessage({ severity: "success", text: successText });
     } catch (error) {
-      setMessage({ severity: "error", text: formatActionError(error, t("settings.proxy_environment_copy_failed")) });
+      setMessage({ severity: "error", text: formatApiError(error, t("settings.proxy_environment_copy_failed")) });
     }
   };
 
@@ -1116,6 +1264,7 @@ function SystemProxyCard() {
 function TunModeCard() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const showToast = useToast();
 
   const { data, isLoading } = useQuery({
     queryKey: ["tunMode"],
@@ -1133,6 +1282,8 @@ function TunModeCard() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["tunMode"] });
     },
+    onError: (error) =>
+      showToast({ message: formatApiError(error, t("settings.tun_failed")), severity: "error" }),
   });
 
   const stackChanged = data ? stack !== data.stack : false;

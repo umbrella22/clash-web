@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import {
@@ -23,10 +23,10 @@ import {
   FormControlLabel,
   InputLabel,
   Switch,
-  Snackbar,
   Alert,
   Tooltip,
-  type AlertColor,
+  LinearProgress,
+  CircularProgress,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -49,30 +49,11 @@ import {
   useImportProfile,
 } from "../hooks/useApi";
 import ProfileEditorDialog from "../components/ProfileEditorDialog";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { PageTitle } from "../components/SystemChrome";
-import { getPrecheckResult } from "../services/api";
+import { useToast } from "../components/toastContext";
+import { formatApiError } from "../utils/errors";
 import type { ProfileExtra, ProfileItem } from "../services/api";
-
-type SnackState = {
-  severity: AlertColor;
-  message: string;
-};
-
-function formatActionError(error: unknown, fallback: string): string {
-  const precheck = getPrecheckResult(error);
-  if (precheck?.error) return `${fallback}: ${precheck.error}`;
-
-  if (typeof error === "object" && error && "response" in error) {
-    const response = error.response as { data?: { error?: string } } | undefined;
-    if (response?.data?.error) return response.data.error;
-  }
-
-  if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
-    return error.message || fallback;
-  }
-
-  return fallback;
-}
 
 function formatSubscriptionStatus(profile: ProfileItem, t: TFunction): string {
   const detail = profile.subscription_update_detail;
@@ -115,6 +96,7 @@ const TYPE_ICON: Record<string, React.ReactNode> = {
 
 export default function ProfilesPage() {
   const { t } = useTranslation();
+  const showToast = useToast();
   const { data, isLoading } = useProfiles();
   const createMut = useCreateProfile();
   const updateMut = useUpdateProfile();
@@ -128,9 +110,9 @@ export default function ProfilesPage() {
   const [createTitle, setCreateTitle] = useState("");
   const [profileEditorUid, setProfileEditorUid] = useState<string | null>(null);
   const [fileEditorUid, setFileEditorUid] = useState<string | null>(null);
-  const [snack, setSnack] = useState<SnackState | null>(null);
+  const [updatingUids, setUpdatingUids] = useState<Set<string>>(new Set());
 
-  const profiles = data?.profiles ?? [];
+  const profiles = useMemo(() => data?.profiles ?? [], [data?.profiles]);
   const activeUid = data?.active ?? null;
 
   const openCreateDialog = useCallback(
@@ -152,21 +134,60 @@ export default function ProfilesPage() {
       const fd = new FormData();
       fd.append("file", file);
       importMut.mutate(fd, {
-        onSuccess: () => setSnack({ severity: "success", message: "Imported" }),
+        onSuccess: () => showToast({ severity: "success", message: t("profiles.imported") }),
         onError: (error) =>
-          setSnack({ severity: "error", message: formatActionError(error, "Import failed") }),
+          showToast({
+            severity: "error",
+            message: formatApiError(error, t("profiles.import_failed")),
+          }),
       });
     };
     input.click();
-  }, [importMut]);
+  }, [importMut, showToast, t]);
 
-  const handleUpdateAll = useCallback(() => {
-    profiles
-      .filter((p) => p.type === "remote" && p.url)
-      .forEach((p) => updateSubMut.mutate(p.uid));
-  }, [profiles, updateSubMut]);
+  const markUpdating = useCallback((uid: string, updating: boolean) => {
+    setUpdatingUids((prev) => {
+      const next = new Set(prev);
+      if (updating) next.add(uid);
+      else next.delete(uid);
+      return next;
+    });
+  }, []);
 
-  if (isLoading) return <Typography>Loading...</Typography>;
+  const handleUpdateOne = useCallback(
+    (uid: string) => {
+      markUpdating(uid, true);
+      updateSubMut.mutate(uid, {
+        onSuccess: () => showToast({ severity: "success", message: t("profiles.update_success") }),
+        onError: (error) =>
+          showToast({
+            severity: "error",
+            message: formatApiError(error, t("profiles.update_failed")),
+          }),
+        onSettled: () => markUpdating(uid, false),
+      });
+    },
+    [markUpdating, updateSubMut, showToast, t]
+  );
+
+  const handleUpdateAll = useCallback(async () => {
+    const targets = profiles.filter((p) => p.type === "remote" && p.url);
+    if (targets.length === 0) return;
+    setUpdatingUids(new Set(targets.map((p) => p.uid)));
+    const results = await Promise.allSettled(
+      targets.map((p) =>
+        updateSubMut.mutateAsync(p.uid).finally(() => markUpdating(p.uid, false))
+      )
+    );
+    const ok = results.filter((r) => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    showToast({
+      severity: fail > 0 ? "warning" : "success",
+      message: t("profiles.update_all_done", { ok, fail }),
+    });
+  }, [profiles, updateSubMut, markUpdating, showToast, t]);
+
+  if (isLoading) return <Typography>{t("common.loading")}</Typography>;
 
   return (
     <Box>
@@ -179,7 +200,7 @@ export default function ProfilesPage() {
             variant="outlined"
             startIcon={<CloudDownloadIcon />}
             onClick={handleUpdateAll}
-            disabled={updateSubMut.isPending}
+            disabled={updatingUids.size > 0}
           >
             {t("profiles.update_all")}
           </Button>
@@ -213,7 +234,7 @@ export default function ProfilesPage() {
 
       {profiles.length === 0 && (
         <Typography color="text.secondary" sx={{ textAlign: "center", mt: 4 }}>
-          No profiles yet. Click "{t("profiles.new")}" to create one.
+          {t("profiles.empty_state")}
         </Typography>
       )}
 
@@ -225,36 +246,32 @@ export default function ProfilesPage() {
               isActive={activeUid === profile.uid}
               onActivate={() =>
                 activateMut.mutate(profile.uid, {
-                  onSuccess: () => setSnack({ severity: "success", message: "Activated" }),
+                  onSuccess: () =>
+                    showToast({ severity: "success", message: t("profiles.activated") }),
                   onError: (error) =>
-                    setSnack({
+                    showToast({
                       severity: "error",
-                      message: formatActionError(error, "Activation failed"),
+                      message: formatApiError(error, t("profiles.activation_failed")),
                     }),
                 })
               }
-              onUpdate={() => updateSubMut.mutate(profile.uid, {
-                onSuccess: () => setSnack({ severity: "success", message: "Updated" }),
-                onError: (error) =>
-                  setSnack({
-                    severity: "error",
-                    message: formatActionError(error, "Update failed"),
-                  }),
-              })}
+              onUpdate={() => handleUpdateOne(profile.uid)}
               onEdit={() => setProfileEditorUid(profile.uid)}
               onEditFile={() => setFileEditorUid(profile.uid)}
               onDelete={() =>
                 deleteMut.mutate(profile.uid, {
-                  onSuccess: () => setSnack({ severity: "success", message: "Deleted" }),
+                  onSuccess: () =>
+                    showToast({ severity: "success", message: t("profiles.deleted") }),
                   onError: (error) =>
-                    setSnack({
+                    showToast({
                       severity: "error",
-                      message: formatActionError(error, "Delete failed"),
+                      message: formatApiError(error, t("profiles.delete_failed")),
                     }),
                 })
               }
-              isUpdating={updateSubMut.isPending}
-              isActivating={activateMut.isPending}
+              isUpdating={updatingUids.has(profile.uid)}
+              isActivating={activateMut.isPending && activateMut.variables === profile.uid}
+              isDeleting={deleteMut.isPending && deleteMut.variables === profile.uid}
             />
           </Grid>
         ))}
@@ -272,13 +289,13 @@ export default function ProfilesPage() {
                 updateSubMut.mutate(response.data.uid, {
                   onSuccess: () => {
                     setCreateOpen(false);
-                    setSnack({ severity: "success", message: "Imported" });
+                    showToast({ severity: "success", message: t("profiles.imported") });
                   },
                   onError: (error) => {
                     setCreateOpen(false);
-                    setSnack({
+                    showToast({
                       severity: "warning",
-                      message: formatActionError(error, "Created, but failed to fetch URL"),
+                      message: formatApiError(error, t("profiles.created_fetch_failed")),
                     });
                   },
                 });
@@ -286,10 +303,13 @@ export default function ProfilesPage() {
               }
 
               setCreateOpen(false);
-              setSnack({ severity: "success", message: "Created" });
+              showToast({ severity: "success", message: t("profiles.created") });
             },
             onError: (error) =>
-              setSnack({ severity: "error", message: formatActionError(error, "Create failed") }),
+              showToast({
+                severity: "error",
+                message: formatApiError(error, t("profiles.create_failed")),
+              }),
           });
         }}
         isPending={createMut.isPending || updateSubMut.isPending}
@@ -304,10 +324,13 @@ export default function ProfilesPage() {
             {
               onSuccess: () => {
                 setProfileEditorUid(null);
-                setSnack({ severity: "success", message: t("profiles.saved") });
+                showToast({ severity: "success", message: t("profiles.saved") });
               },
               onError: (error) =>
-                setSnack({ severity: "error", message: formatActionError(error, "Save failed") }),
+                showToast({
+                  severity: "error",
+                  message: formatApiError(error, t("profiles.save_failed")),
+                }),
             }
           );
         }}
@@ -318,17 +341,6 @@ export default function ProfilesPage() {
         uid={fileEditorUid}
         onClose={() => setFileEditorUid(null)}
       />
-
-      <Snackbar
-        open={!!snack}
-        autoHideDuration={2000}
-        onClose={() => setSnack(null)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert severity={snack?.severity ?? "info"} onClose={() => setSnack(null)}>
-          {snack?.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 }
@@ -343,6 +355,7 @@ function ProfileCard({
   onDelete,
   isUpdating,
   isActivating,
+  isDeleting,
 }: {
   profile: ProfileItem;
   isActive: boolean;
@@ -353,6 +366,7 @@ function ProfileCard({
   onDelete: () => void;
   isUpdating: boolean;
   isActivating: boolean;
+  isDeleting: boolean;
 }) {
   const { t } = useTranslation();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -437,30 +451,35 @@ function ProfileCard({
           </Box>
         )}
         {si && si.total > 0 && (
-          <Box sx={{ mt: 1 }}>
-            <Typography variant="caption" color="text.secondary">
-              {t("profiles.subscription")}:{" "}
-              {formatBytes(si.upload + si.download)} / {formatBytes(si.total)}
-            </Typography>
-            {si.expire && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
-                {t("profiles.expire")}: {formatDate(si.expire)}
-              </Typography>
-            )}
-          </Box>
+          <SubscriptionQuota
+            used={si.upload + si.download}
+            total={si.total}
+            expire={si.expire}
+          />
         )}
       </CardContent>
       <CardActions sx={{ justifyContent: "flex-end" }}>
         {!isActive && (
-          <Button size="small" onClick={onActivate} disabled={isActivating}>
+          <Button
+            size="small"
+            onClick={onActivate}
+            disabled={isActivating}
+            startIcon={isActivating ? <CircularProgress size={14} color="inherit" /> : undefined}
+          >
             {t("profiles.activate")}
           </Button>
         )}
         {profile.type === "remote" && (
           <Tooltip title={t("profiles.update")}>
-            <IconButton size="small" onClick={onUpdate} disabled={isUpdating}>
-              <RefreshIcon fontSize="small" />
-            </IconButton>
+            <span>
+              <IconButton size="small" onClick={onUpdate} disabled={isUpdating}>
+                {isUpdating ? (
+                  <CircularProgress size={16} color="inherit" />
+                ) : (
+                  <RefreshIcon fontSize="small" />
+                )}
+              </IconButton>
+            </span>
           </Tooltip>
         )}
         <Tooltip title={t("profiles.edit")}>
@@ -474,9 +493,20 @@ function ProfileCard({
           </IconButton>
         </Tooltip>
         <Tooltip title={t("profiles.delete")}>
-          <IconButton size="small" onClick={() => setDeleteDialogOpen(true)} color="error">
-            <DeleteIcon fontSize="small" />
-          </IconButton>
+          <span>
+            <IconButton
+              size="small"
+              onClick={() => setDeleteDialogOpen(true)}
+              color="error"
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : (
+                <DeleteIcon fontSize="small" />
+              )}
+            </IconButton>
+          </span>
         </Tooltip>
       </CardActions>
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
@@ -503,6 +533,46 @@ function ProfileCard({
   );
 }
 
+function SubscriptionQuota({
+  used,
+  total,
+  expire,
+}: {
+  used: number;
+  total: number;
+  expire?: number | null;
+}) {
+  const { t } = useTranslation();
+  const percent = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+
+  return (
+    <Box sx={{ mt: 1 }}>
+      <LinearProgress
+        variant="determinate"
+        value={percent}
+        color={percent >= 90 ? "error" : percent >= 70 ? "warning" : "primary"}
+        sx={{
+          height: 6,
+          borderRadius: 0,
+          border: 1,
+          borderColor: "divider",
+          "& .MuiLinearProgress-bar": { borderRadius: 0 },
+        }}
+      />
+      <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, mt: 0.5 }}>
+        <Typography variant="caption" color="text.secondary">
+          {t("profiles.quota_used", { used: formatBytes(used), total: formatBytes(total) })}
+        </Typography>
+        {expire ? (
+          <Typography variant="caption" color="text.secondary">
+            {t("profiles.expires_at", { date: formatDate(expire) })}
+          </Typography>
+        ) : null}
+      </Box>
+    </Box>
+  );
+}
+
 function CreateProfileDialog({
   open,
   onClose,
@@ -523,6 +593,7 @@ function CreateProfileDialog({
   const [type, setType] = useState<ProfileItem["type"]>(initialType);
   const [url, setUrl] = useState("");
   const [extra, setExtra] = useState<ProfileExtra>({ keep_old_on_failure: true });
+  const [confirmingClose, setConfirmingClose] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -530,6 +601,7 @@ function CreateProfileDialog({
     setType(initialType);
     setUrl("");
     setExtra({ keep_old_on_failure: true });
+    setConfirmingClose(false);
   }, [open, initialType]);
 
   const handleSubmit = () => {
@@ -543,8 +615,22 @@ function CreateProfileDialog({
     });
   };
 
+  const isDirty =
+    name !== "" ||
+    url !== "" ||
+    type !== initialType ||
+    JSON.stringify(extra) !== JSON.stringify({ keep_old_on_failure: true });
+
+  const requestClose = () => {
+    if (isDirty) {
+      setConfirmingClose(true);
+      return;
+    }
+    onClose();
+  };
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={open} onClose={requestClose} maxWidth="sm" fullWidth>
       <DialogTitle>{title}</DialogTitle>
       <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "16px !important" }}>
         <TextField
@@ -566,7 +652,7 @@ function CreateProfileDialog({
         {type === "remote" && (
           <>
             <TextField
-              label="URL"
+              label={t("profiles.url")}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://..."
@@ -577,7 +663,7 @@ function CreateProfileDialog({
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>{t("profiles.cancel")}</Button>
+        <Button onClick={requestClose}>{t("profiles.cancel")}</Button>
         <Button
           onClick={handleSubmit}
           variant="contained"
@@ -586,6 +672,16 @@ function CreateProfileDialog({
           {t("profiles.save")}
         </Button>
       </DialogActions>
+      <ConfirmDialog
+        open={confirmingClose}
+        message={t("profiles.editor_dirty_confirm")}
+        confirmColor="warning"
+        onConfirm={() => {
+          setConfirmingClose(false);
+          onClose();
+        }}
+        onCancel={() => setConfirmingClose(false)}
+      />
     </Dialog>
   );
 }
@@ -606,6 +702,7 @@ function EditProfileDialog({
   const [desc, setDesc] = useState("");
   const [url, setUrl] = useState("");
   const [extra, setExtra] = useState<ProfileExtra>({});
+  const [confirmingClose, setConfirmingClose] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -613,6 +710,7 @@ function EditProfileDialog({
     setDesc(profile.desc ?? "");
     setUrl(profile.url ?? "");
     setExtra(profile.extra ?? {});
+    setConfirmingClose(false);
   }, [profile]);
 
   const handleSubmit = () => {
@@ -626,8 +724,24 @@ function EditProfileDialog({
     });
   };
 
+  const isDirty =
+    !!profile &&
+    (name !== profile.name ||
+      desc !== (profile.desc ?? "") ||
+      (profile.type === "remote" &&
+        (url !== (profile.url ?? "") ||
+          JSON.stringify(extra) !== JSON.stringify(profile.extra ?? {}))));
+
+  const requestClose = () => {
+    if (isDirty) {
+      setConfirmingClose(true);
+      return;
+    }
+    onClose();
+  };
+
   return (
-    <Dialog open={!!profile} onClose={onClose} maxWidth="sm" fullWidth>
+    <Dialog open={!!profile} onClose={requestClose} maxWidth="sm" fullWidth>
       <DialogTitle>{t("profiles.edit")}</DialogTitle>
       <DialogContent sx={{ display: "flex", flexDirection: "column", gap: 2, pt: "16px !important" }}>
         <TextField
@@ -646,7 +760,7 @@ function EditProfileDialog({
         {profile?.type === "remote" && (
           <>
             <TextField
-              label="URL"
+              label={t("profiles.url")}
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://..."
@@ -657,7 +771,7 @@ function EditProfileDialog({
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>{t("profiles.cancel")}</Button>
+        <Button onClick={requestClose}>{t("profiles.cancel")}</Button>
         <Button
           onClick={handleSubmit}
           variant="contained"
@@ -666,6 +780,16 @@ function EditProfileDialog({
           {t("profiles.save")}
         </Button>
       </DialogActions>
+      <ConfirmDialog
+        open={confirmingClose}
+        message={t("profiles.editor_dirty_confirm")}
+        confirmColor="warning"
+        onConfirm={() => {
+          setConfirmingClose(false);
+          onClose();
+        }}
+        onCancel={() => setConfirmingClose(false)}
+      />
     </Dialog>
   );
 }

@@ -8,8 +8,12 @@ import {
   Button,
   TextField,
   Typography,
+  Alert,
 } from "@mui/material";
 import { useProfileFile, useSaveProfileFile } from "../hooks/useApi";
+import { useToast } from "./toastContext";
+import ConfirmDialog from "./ConfirmDialog";
+import { formatApiError } from "../utils/errors";
 
 interface Props {
   uid: string | null;
@@ -18,34 +22,66 @@ interface Props {
 
 export default function ProfileEditorDialog({ uid, onClose }: Props) {
   const { t } = useTranslation();
+  const showToast = useToast();
   const { data, isLoading } = useProfileFile(uid);
   const saveMut = useSaveProfileFile();
   const [content, setContent] = useState("");
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [confirmingClose, setConfirmingClose] = useState(false);
 
   useEffect(() => {
     if (!uid) {
       setContent("");
+      setSaveError(null);
       return;
     }
     if (data?.content !== undefined) setContent(data.content);
   }, [data?.content, uid]);
 
+  const isDirty = !!uid && !isLoading && content !== (data?.content ?? "");
+
+  const doClose = () => {
+    setConfirmingClose(false);
+    setSaveError(null);
+    onClose();
+  };
+
+  const requestClose = () => {
+    if (isDirty) {
+      setConfirmingClose(true);
+      return;
+    }
+    doClose();
+  };
+
   const handleSave = () => {
     if (!uid) return;
+    setSaveError(null);
     saveMut.mutate(
       { uid, content },
-      { onSuccess: onClose }
+      {
+        onSuccess: () => {
+          showToast({ severity: "success", message: t("profiles.saved") });
+          onClose();
+        },
+        onError: (error) => {
+          setSaveError(formatApiError(error, t("profiles.save_failed")));
+        },
+      }
     );
   };
 
   return (
-    <Dialog open={!!uid} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>
-        <Typography variant="h6">{t("profiles.edit")}</Typography>
-      </DialogTitle>
+    <Dialog open={!!uid} onClose={requestClose} maxWidth="md" fullWidth>
+      <DialogTitle>{t("profiles.edit")}</DialogTitle>
       <DialogContent>
+        {saveError && (
+          <Alert severity="error" sx={{ mb: 1 }} onClose={() => setSaveError(null)}>
+            {saveError}
+          </Alert>
+        )}
         {isLoading ? (
-          <Typography>Loading...</Typography>
+          <Typography>{t("common.loading")}</Typography>
         ) : (
           <TextField
             multiline
@@ -64,11 +100,18 @@ export default function ProfileEditorDialog({ uid, onClose }: Props) {
         )}
       </DialogContent>
       <DialogActions>
-        <Button onClick={onClose}>{t("profiles.cancel")}</Button>
-        <Button onClick={handleSave} variant="contained" disabled={saveMut.isPending}>
+        <Button onClick={requestClose}>{t("profiles.cancel")}</Button>
+        <Button onClick={handleSave} variant="contained" disabled={saveMut.isPending || !uid}>
           {t("profiles.save")}
         </Button>
       </DialogActions>
+      <ConfirmDialog
+        open={confirmingClose}
+        message={t("profiles.editor_dirty_confirm")}
+        confirmColor="warning"
+        onConfirm={doClose}
+        onCancel={() => setConfirmingClose(false)}
+      />
     </Dialog>
   );
 }

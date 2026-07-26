@@ -260,9 +260,12 @@ export const createProfile = (data: Partial<ProfileItem> & { name: string; type:
 export const updateProfile = (uid: string, data: Record<string, unknown>) =>
   api.put(`/profiles/${uid}`, data);
 export const deleteProfile = (uid: string) => api.delete(`/profiles/${uid}`);
-export const activateProfile = (uid: string) => api.post<ProfileItem>(`/profiles/${uid}/activate`);
+export const activateProfile = (uid: string) =>
+  api.post<ProfileItem>(`/profiles/${uid}/activate`, undefined, { timeout: 30000 });
+// Backend clamps each download attempt at 120s but may retry up to 3 times with
+// up to 60s intervals, so the client must not cut the request short: no timeout.
 export const updateSubscription = (uid: string) =>
-  api.post<SubscriptionUpdateResponse>(`/profiles/${uid}/update`);
+  api.post<SubscriptionUpdateResponse>(`/profiles/${uid}/update`, undefined, { timeout: 0 });
 export const reorderProfiles = (uids: string[]) => api.put("/profiles/reorder", { uids });
 export const getProfileFile = (uid: string) => api.get<{ content: string }>(`/profiles/${uid}/file`);
 export const saveProfileFile = (uid: string, content: string) =>
@@ -284,7 +287,8 @@ export const saveDnsConfig = (content: string) =>
   api.put<SuccessResponse>("/dns", { content });
 export const validateDnsConfig = (content: string) =>
   api.post<ValidateResponse>("/dns/validate", { content });
-export const applyDnsConfig = () => api.post<SuccessResponse>("/dns/apply");
+export const applyDnsConfig = () =>
+  api.post<SuccessResponse>("/dns/apply", undefined, { timeout: 30000 });
 export const restoreDefaultDnsConfig = () => api.post<ContentResponse>("/dns/default");
 export const getBackups = () => api.get<BackupsResponse>("/backups");
 export const createBackup = (data: CreateBackupRequest = {}) =>

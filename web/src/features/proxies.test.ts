@@ -4,6 +4,8 @@ import {
   filterGroupProxyNames,
   filterProviders,
   getCurrentProxyTarget,
+  getDelay,
+  getDelayColor,
   getPrimaryRuleProxyGroup,
   getQuickControlGroups,
   sortProxyGroupsByPinned,
@@ -96,6 +98,35 @@ describe("proxy helpers", () => {
       "Alpha",
       "Offline",
     ]);
+  });
+
+  it("treats mihomo's failed-test delay 0 as unavailable", () => {
+    const dead: ProxyItem = {
+      name: "Dead",
+      type: "Trojan",
+      history: [{ time: "2026-05-30T00:00:00Z", delay: 0 }],
+    };
+    expect(getDelay(dead)).toBe(-1);
+    expect(getDelay(proxies.Alpha)).toBe(120);
+    expect(getDelay(proxies.Offline)).toBe(-1);
+
+    const withDead: Record<string, ProxyItem> = {
+      ...proxies,
+      GLOBAL: { ...proxies.GLOBAL, all: ["Alpha", "Bravo", "Dead"] },
+      Dead: dead,
+    };
+    const group = buildProxyGroups(withDead, "global")[0];
+    expect(summarizeGroup(group, withDead).availableNodes).toBe(2);
+    expect(filterGroupProxyNames(group, withDead, "", "unavailable")).toEqual(["Dead"]);
+    expect(sortProxyNames(group.all, withDead, "delay")).toEqual(["Bravo", "Alpha", "Dead"]);
+  });
+
+  it("maps delay to chip colors with failed/untested as neutral", () => {
+    expect(getDelayColor(-1)).toBe("default");
+    expect(getDelayColor(0)).toBe("default");
+    expect(getDelayColor(120)).toBe("success");
+    expect(getDelayColor(500)).toBe("warning");
+    expect(getDelayColor(900)).toBe("error");
   });
 
   it("prioritizes overview quick control groups by common home-gateway naming", () => {

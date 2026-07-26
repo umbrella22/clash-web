@@ -14,32 +14,10 @@ import {
   readStoredDownloadProgress,
   writeStoredDownloadProgress,
 } from "../features/mihomoDownload";
+import { formatApiError } from "../utils/errors";
 
 interface UseMihomoDownloadTaskOptions {
   enabled?: boolean;
-}
-
-function extractApiErrorMessage(error: unknown, fallback: string): string {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "response" in error &&
-    typeof error.response === "object" &&
-    error.response !== null &&
-    "data" in error.response &&
-    typeof error.response.data === "object" &&
-    error.response.data !== null &&
-    "error" in error.response.data &&
-    typeof error.response.data.error === "string"
-  ) {
-    return error.response.data.error;
-  }
-
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return fallback;
 }
 
 export function useMihomoDownloadTask(
@@ -209,7 +187,7 @@ export function useMihomoDownloadTask(
       } catch (error) {
         if (!mountedRef.current) return false;
         closeProgressStream();
-        setActionError(extractApiErrorMessage(error, fallbackError));
+        setActionError(formatApiError(error, fallbackError));
         const latest = await refreshStatus();
         if (mountedRef.current && !closedRef.current && latest?.active) {
           startListeningProgress();

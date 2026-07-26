@@ -29,7 +29,8 @@ export interface ConnectionsSummary {
 }
 
 export type ConnectionNetworkFilter = "all" | "tcp" | "udp";
-export type ConnectionSortKey = "time" | "download" | "upload" | "host";
+/** "time" sorts by connection duration (now - start); "start" sorts by the raw start timestamp. */
+export type ConnectionSortKey = "time" | "start" | "download" | "upload" | "host";
 export type SortDirection = "asc" | "desc";
 
 function normalizeKeyword(value: string): string {
@@ -47,11 +48,13 @@ export function summarizeConnections(connections: Connection[]): ConnectionsSumm
   const summary = connections.reduce<ConnectionsSummary>(
     (result, connection) => {
       const network = connection.metadata?.network?.toLowerCase() ?? "";
-      const chain = connection.chains?.[0];
+      // mihomo lists chains exit-node first, so chains[0] is the exit node the
+      // connection actually leaves through — that is what topChain counts.
+      const exitNode = connection.chains?.[0];
 
       if (network === "tcp") result.tcp += 1;
       if (network === "udp") result.udp += 1;
-      if (chain) chainCounts.set(chain, (chainCounts.get(chain) ?? 0) + 1);
+      if (exitNode) chainCounts.set(exitNode, (chainCounts.get(exitNode) ?? 0) + 1);
 
       result.upload += connection.upload;
       result.download += connection.download;
@@ -104,6 +107,14 @@ export function sortConnections(
   direction: SortDirection
 ): Connection[] {
   const multiplier = direction === "asc" ? 1 : -1;
+  const now = Date.now();
+
+  const numericValue = (connection: Connection): number => {
+    // "time" is labeled Duration: descending must put the longest-lived connection first.
+    if (sortKey === "time") return now - new Date(connection.start).getTime();
+    if (sortKey === "start") return new Date(connection.start).getTime();
+    return connection[sortKey as "download" | "upload"] ?? 0;
+  };
 
   return [...connections].sort((left, right) => {
     const leftHost = left.metadata?.host ?? "";
@@ -113,8 +124,8 @@ export function sortConnections(
       return multiplier * leftHost.localeCompare(rightHost);
     }
 
-    const leftValue = sortKey === "time" ? new Date(left.start).getTime() : left[sortKey] ?? 0;
-    const rightValue = sortKey === "time" ? new Date(right.start).getTime() : right[sortKey] ?? 0;
+    const leftValue = numericValue(left);
+    const rightValue = numericValue(right);
 
     if (leftValue === rightValue) return leftHost.localeCompare(rightHost);
     return multiplier * (leftValue - rightValue);

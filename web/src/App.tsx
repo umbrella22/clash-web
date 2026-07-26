@@ -7,6 +7,7 @@ import {
   Typography,
 } from "@mui/material";
 import { createContext, useContext, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 
 import MainLayout from "./layouts/MainLayout";
@@ -19,6 +20,7 @@ import ProxiesPage from "./pages/ProxiesPage";
 import RulesPage from "./pages/RulesPage";
 import SettingsPage from "./pages/SettingsPage";
 import { MihomoDownloadTaskProvider } from "./contexts/MihomoDownloadTaskContext";
+import { ToastProvider } from "./components/ToastHost";
 import {
   clearStoredToken,
   getAuthStatus,
@@ -92,6 +94,7 @@ function MainRoutes() {
 }
 
 function AuthLoadingScreen() {
+  const { t } = useTranslation();
   return (
     <Box
       sx={{
@@ -105,7 +108,7 @@ function AuthLoadingScreen() {
     >
       <CircularProgress />
       <Typography variant="body2" color="text.secondary">
-        Checking authentication...
+        {t("shell.checking_auth")}
       </Typography>
     </Box>
   );
@@ -275,9 +278,11 @@ export default function App() {
       <ThemeProvider theme={theme}>
         <CssBaseline />
         <QueryClientProvider client={queryClient}>
-          <HashRouter>
-            <AppRouter />
-          </HashRouter>
+          <ToastProvider>
+            <HashRouter>
+              <AppRouter />
+            </HashRouter>
+          </ToastProvider>
         </QueryClientProvider>
       </ThemeProvider>
     </ThemeContext.Provider>

@@ -9,6 +9,11 @@ export interface RulesResponse {
   rules: RuleItem[];
 }
 
+export interface IndexedRuleItem extends RuleItem {
+  /** 1-based position in the original API order (clash match priority). */
+  index: number;
+}
+
 export interface RulesSummary {
   total: number;
   direct: number;
@@ -18,8 +23,17 @@ export interface RulesSummary {
 }
 
 export type RuleTypeFilter = string;
-export type RuleSortKey = "type" | "payload" | "proxy" | "size";
+export type RuleSortKey = "order" | "type" | "payload" | "proxy" | "size";
 export type SortDirection = "asc" | "desc";
+
+export function indexRules(rules: RuleItem[]): IndexedRuleItem[] {
+  return rules.map((rule, position) => ({ ...rule, index: position + 1 }));
+}
+
+export function formatRuleSize(size: number | undefined): string {
+  if (size === undefined || size < 0) return "—";
+  return String(size);
+}
 
 function normalizeKeyword(value: string): string {
   return value.trim().toLowerCase();
@@ -67,11 +81,11 @@ export function summarizeRules(rules: RuleItem[]): RulesSummary {
   return summary;
 }
 
-export function filterRules(
-  rules: RuleItem[],
+export function filterRules<T extends RuleItem>(
+  rules: T[],
   search: string,
   typeFilter: RuleTypeFilter
-): RuleItem[] {
+): T[] {
   const keyword = normalizeKeyword(search);
 
   return rules.filter((rule) => {
@@ -87,11 +101,15 @@ export function filterRules(
   });
 }
 
-export function sortRules(
-  rules: RuleItem[],
+export function sortRules<T extends RuleItem>(
+  rules: T[],
   sortKey: RuleSortKey,
   direction: SortDirection
-): RuleItem[] {
+): T[] {
+  // "order" keeps the original API order — clash matches rules by priority,
+  // so this is the identity sort regardless of direction.
+  if (sortKey === "order") return [...rules];
+
   const multiplier = direction === "asc" ? 1 : -1;
 
   return [...rules].sort((left, right) => {

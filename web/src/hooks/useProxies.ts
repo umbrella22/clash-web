@@ -38,7 +38,58 @@ export function useSelectProxy() {
   return useMutation({
     mutationFn: ({ group, name }: { group: string; name: string }) =>
       mihomoApi.put(`/proxies/${encodeURIComponent(group)}`, { name }),
-    onSuccess: () => queryClient.refetchQueries({ queryKey: proxyQueryKey }),
+    // Optimistically flip the group's "now" so the UI reacts instantly;
+    // roll back on error and reconcile with the server once settled.
+    // Both cache writes pin `updatedAt` to the existing stamp: consumers
+    // (ProxiesPage's delay-override map) treat a dataUpdatedAt bump as "fresh
+    // server data arrived", and an optimistic local write must not masquerade
+    // as that. Rollback is per-group rather than a whole-map snapshot restore,
+    // so a failed selection can't revert a concurrent selection in another group.
+    onMutate: async ({ group, name }) => {
+      await queryClient.cancelQueries({ queryKey: proxyQueryKey });
+      const state = queryClient.getQueryState<ProxiesResponse>(proxyQueryKey);
+      const previousNow = state?.data?.proxies?.[group]?.now;
+      const previousUpdatedAt = state?.dataUpdatedAt;
+
+      queryClient.setQueryData<ProxiesResponse>(
+        proxyQueryKey,
+        (current) => {
+          const groupItem = current?.proxies?.[group];
+          if (!current || !groupItem) return current;
+
+          return {
+            ...current,
+            proxies: {
+              ...current.proxies,
+              [group]: { ...groupItem, now: name },
+            },
+          };
+        },
+        { updatedAt: previousUpdatedAt }
+      );
+
+      return { group, previousNow, previousUpdatedAt };
+    },
+    onError: (_error, _variables, context) => {
+      if (!context || context.previousNow === undefined) return;
+      queryClient.setQueryData<ProxiesResponse>(
+        proxyQueryKey,
+        (current) => {
+          const groupItem = current?.proxies?.[context.group];
+          if (!current || !groupItem) return current;
+
+          return {
+            ...current,
+            proxies: {
+              ...current.proxies,
+              [context.group]: { ...groupItem, now: context.previousNow },
+            },
+          };
+        },
+        { updatedAt: context.previousUpdatedAt }
+      );
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: proxyQueryKey }),
   });
 }
 

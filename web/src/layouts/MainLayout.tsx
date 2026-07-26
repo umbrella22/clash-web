@@ -64,15 +64,15 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const sysStatusLabel = downloadStatusActive
     ? t(`settings.download_status_${describeDownloadStatus(progress.status)}`)
     : isProxyConnected
-      ? "Proxy linked"
-      : "Proxy offline";
+      ? t("shell.link_up")
+      : t("shell.link_down");
   const sysStatusDetail = downloadStatusActive
     ? progress.total > 0
       ? `${formatBytes(progress.downloaded)} / ${formatBytes(progress.total)} · ETA ${formatRemainingTime(progress.remaining_secs)}`
       : progress.message
     : isProxyConnected
       ? status?.version?.version || `${status?.server.host}:${status?.server.port}`
-      : "Waiting for mihomo";
+      : t("shell.link_waiting");
   const statusTone = downloadStatusActive ? "info" : isProxyConnected ? "success" : "error";
   const statusColor = `${statusTone}.main`;
 
@@ -500,7 +500,19 @@ export default function MainLayout({ children }: MainLayoutProps) {
               </Typography>
             </Box>
           </Box>
-          {children}
+          <Box
+            key={location.pathname}
+            sx={{
+              "@keyframes page-enter": {
+                from: { opacity: 0, transform: "translateY(6px)" },
+                to: { opacity: 1, transform: "none" },
+              },
+              animation: "page-enter 240ms cubic-bezier(0.2, 0, 0, 1) both",
+              "@media (prefers-reduced-motion: reduce)": { animation: "none" },
+            }}
+          >
+            {children}
+          </Box>
         </Box>
       </Box>
     </Box>

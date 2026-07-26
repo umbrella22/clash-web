@@ -74,16 +74,34 @@ describe("connection helpers", () => {
     expect(filterConnections(connections, "10.0.0.1", "tcp").map((item) => item.id)).toEqual(["1"]);
   });
 
-  it("sorts deterministically by traffic, time and host", () => {
+  it("sorts deterministically by traffic, duration, start time and host", () => {
     expect(sortConnections(connections, "download", "desc").map((item) => item.id)).toEqual([
       "3",
       "1",
       "2",
     ]);
-    expect(sortConnections(connections, "time", "asc").map((item) => item.id)).toEqual([
+    // "time" means duration (now - start): descending puts the longest-lived
+    // connection (earliest start) first, ascending the freshest first.
+    expect(sortConnections(connections, "time", "desc").map((item) => item.id)).toEqual([
       "1",
       "3",
       "2",
+    ]);
+    expect(sortConnections(connections, "time", "asc").map((item) => item.id)).toEqual([
+      "2",
+      "3",
+      "1",
+    ]);
+    // "start" sorts by the raw start timestamp: ascending is chronological.
+    expect(sortConnections(connections, "start", "asc").map((item) => item.id)).toEqual([
+      "1",
+      "3",
+      "2",
+    ]);
+    expect(sortConnections(connections, "start", "desc").map((item) => item.id)).toEqual([
+      "2",
+      "3",
+      "1",
     ]);
     expect(sortConnections(connections, "host", "asc").map((item) => item.id)).toEqual([
       "1",

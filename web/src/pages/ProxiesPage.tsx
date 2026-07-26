@@ -1,8 +1,7 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Alert,
-  type AlertColor,
   Box,
   Button,
   Card,
@@ -10,14 +9,12 @@ import {
   Chip,
   CircularProgress,
   FormControl,
-  Grid,
   IconButton,
   InputAdornment,
   InputLabel,
   LinearProgress,
   MenuItem,
   Select,
-  Snackbar,
   Tab,
   Tabs,
   TextField,
@@ -27,25 +24,23 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import SpeedIcon from "@mui/icons-material/Speed";
 import RefreshIcon from "@mui/icons-material/Refresh";
-import StarIcon from "@mui/icons-material/Star";
-import StarBorderIcon from "@mui/icons-material/StarBorder";
-import CheckCircleIcon from "@mui/icons-material/CheckCircle";
-import RadioButtonUncheckedIcon from "@mui/icons-material/RadioButtonUnchecked";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { alpha } from "@mui/material/styles";
 import type { Theme } from "@mui/material/styles";
 import type { SxProps } from "@mui/material/styles";
 import { PageTitle, SystemPanel } from "../components/SystemChrome";
+import { ProxyGroupPanel } from "../components/proxies/ProxyGroupPanel";
+import { useToast } from "../components/toastContext";
+import { formatApiError } from "../utils/errors";
 import { runWithConcurrency } from "../features/async";
 import {
   createProxyGroups,
   filterGroupProxyNames,
   filterProviders,
   getDelay,
+  getDelayColor,
   GROUP_TYPES,
-  type GroupSummary,
   type ProviderVehicleFilter,
-  type ProxiesResponse,
   type ProxyAvailabilityFilter,
   type ProxyItem,
   type ProxySortMode,
@@ -55,10 +50,15 @@ import {
   summarizeGroup,
   summarizeProvider,
 } from "../features/proxies";
-import { usePinnedProxyGroups } from "../hooks/usePinnedProxyGroups";
+import {
+  useCollapsedProxyGroups,
+  usePinnedProxyGroups,
+} from "../hooks/usePinnedProxyGroups";
+import { proxyQueryKey, useProxies, useSelectProxy } from "../hooks/useProxies";
 import { mihomoApi, pingGoogleWithProxy } from "../services/api";
 
 const DELAY_TEST_CONCURRENCY = 6;
+const SEARCH_DEBOUNCE_MS = 150;
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -66,19 +66,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
-
-function formatActionError(error: unknown, fallback: string): string {
-  if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
-    return error.message || fallback;
-  }
-
-  return fallback;
-}
-
-type SnackState = {
-  severity: AlertColor;
-  message: string;
-};
 
 type ActiveSelection = {
   groupName: string;
@@ -97,57 +84,84 @@ const oneLineText: SxProps<Theme> = {
 export default function ProxiesPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const showToast = useToast();
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState(0);
   const [sortMode, setSortMode] = useState<ProxySortMode>("default");
   const [availabilityFilter, setAvailabilityFilter] =
     useState<ProxyAvailabilityFilter>("all");
-  const [pendingSelection, setPendingSelection] = useState<{
-    group: string;
-    name: string;
-  } | null>(null);
-  const [isTestingAll, setIsTestingAll] = useState(false);
-  const [snack, setSnack] = useState<SnackState | null>(null);
+  // Session-local delay results so batch/single tests can stream into the UI
+  // without waiting for a full refetch. Superseded by fresh server data.
+  const [delayOverrides, setDelayOverrides] = useState<Record<string, number>>({});
+  const [testingNodes, setTestingNodes] = useState<ReadonlySet<string>>(new Set());
+  const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
+  // Spinner/disable only for user-initiated refreshes; the 10s background
+  // poll also flips isFetching and must not make the button flicker.
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const { pinnedGroupNames, togglePinnedGroup } = usePinnedProxyGroups();
+  const { isGroupCollapsed, toggleGroupCollapsed } = useCollapsedProxyGroups();
+  const isBatchTesting = batchProgress !== null;
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
-    queryKey: ["proxies"],
-    queryFn: () => mihomoApi.get<ProxiesResponse>("/").then((response) => response.data),
-    refetchInterval: 10000,
-  });
+  // Debounce the search input so filtering does not run on every keystroke.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
-  const selectProxy = useMutation({
-    mutationFn: ({ group, name }: { group: string; name: string }) =>
-      mihomoApi.put(`/proxies/${encodeURIComponent(group)}`, { name }),
-    onMutate: ({ group, name }) => setPendingSelection({ group, name }),
-    onSuccess: async (_, variables) => {
-      await qc.refetchQueries({ queryKey: ["proxies"] });
-      setSnack({
-        severity: "success",
-        message: t("proxies.switch_success", {
-          group: variables.group,
-          name: variables.name,
-        }),
-      });
+  const { data, isLoading, isError, refetch, dataUpdatedAt } = useProxies();
+
+  const handleManualRefresh = useCallback(() => {
+    setManualRefreshing(true);
+    void refetch().finally(() => setManualRefreshing(false));
+  }, [refetch]);
+
+  // Fresh server data (poll or post-test invalidation) supersedes the
+  // session-local overrides. Render-time adjustment per React's
+  // "adjusting state when a prop changes" pattern.
+  const [seenDataStamp, setSeenDataStamp] = useState(dataUpdatedAt);
+  if (seenDataStamp !== dataUpdatedAt) {
+    setSeenDataStamp(dataUpdatedAt);
+    if (Object.keys(delayOverrides).length > 0) {
+      setDelayOverrides({});
+    }
+  }
+
+  const selectProxy = useSelectProxy();
+  const pendingSelection =
+    selectProxy.isPending && selectProxy.variables ? selectProxy.variables : null;
+  const { mutate: mutateSelectProxy } = selectProxy;
+
+  const handleSelectNode = useCallback(
+    (group: string, name: string) => {
+      mutateSelectProxy(
+        { group, name },
+        {
+          onSuccess: () => {
+            showToast({
+              severity: "success",
+              message: t("proxies.switch_success", { group, name }),
+            });
+          },
+          onError: (error) => {
+            showToast({
+              severity: "error",
+              message: formatApiError(error, t("proxies.switch_failed", { group, name })),
+            });
+          },
+        }
+      );
     },
-    onError: (error, variables) => {
-      setSnack({
-        severity: "error",
-        message: formatActionError(
-          error,
-          t("proxies.switch_failed", {
-            group: variables.group,
-            name: variables.name,
-          })
-        ),
-      });
-    },
-    onSettled: () => setPendingSelection(null),
-  });
+    [mutateSelectProxy, showToast, t]
+  );
 
-  const proxies: Record<string, ProxyItem> = (data?.proxies ?? {}) as Record<string, ProxyItem>;
+  const proxies = useMemo(
+    () => (data?.proxies ?? {}) as Record<string, ProxyItem>,
+    [data]
+  );
   const isProvidersTab = tab === GROUP_TYPES.length + 1;
   const groupType = tab === 0 ? null : GROUP_TYPES[tab - 1];
+  const searchActive = search.trim().length > 0;
   const groups = useMemo(() => createProxyGroups(proxies), [proxies]);
   const displayGroups = useMemo(() => {
     const targetGroups = groupType
@@ -155,18 +169,34 @@ export default function ProxiesPage() {
       : groups;
 
     return sortProxyGroupsByPinned(targetGroups, pinnedGroupNames)
-      .map((group) => ({
-        ...group,
-        pinned: pinnedGroupNames.includes(group.groupName),
-        summary: summarizeGroup(group, proxies),
-        visibleNames: sortProxyNames(
-          filterGroupProxyNames(group, proxies, search, availabilityFilter),
-          proxies,
-          sortMode
-        ),
-      }))
+      .map((group) => {
+        const pinned = pinnedGroupNames.includes(group.groupName);
+        return {
+          ...group,
+          pinned,
+          // Pinned groups start expanded, others collapsed; an active search
+          // force-expands so matches are actually visible.
+          collapsed: searchActive ? false : isGroupCollapsed(group.groupName, !pinned),
+          summary: summarizeGroup(group, proxies),
+          visibleNames: sortProxyNames(
+            filterGroupProxyNames(group, proxies, search, availabilityFilter),
+            proxies,
+            sortMode
+          ),
+        };
+      })
       .filter((group) => group.visibleNames.length > 0);
-  }, [availabilityFilter, groupType, groups, pinnedGroupNames, proxies, search, sortMode]);
+  }, [
+    availabilityFilter,
+    groupType,
+    groups,
+    isGroupCollapsed,
+    pinnedGroupNames,
+    proxies,
+    search,
+    searchActive,
+    sortMode,
+  ]);
   const testTargetNames = useMemo(
     () => Array.from(new Set(displayGroups.flatMap((group) => group.visibleNames))),
     [displayGroups]
@@ -183,17 +213,17 @@ export default function ProxiesPage() {
             groupType: group.type,
             nodeName,
             nodeType: node?.type,
-            delay: getDelay(node),
+            delay: delayOverrides[nodeName] ?? getDelay(node),
           };
         }),
-    [groups, proxies]
+    [delayOverrides, groups, proxies]
   );
   const primarySelection = activeSelections.find((selection) => selection.groupName === "GLOBAL") ?? activeSelections[0];
 
   const pingGoogle = useMutation({
     mutationFn: (proxyName: string) => pingGoogleWithProxy(proxyName).then((response) => response.data),
     onSuccess: (result, proxyName) => {
-      setSnack({
+      showToast({
         severity: "success",
         message: t("proxies.google_ping_success", {
           name: proxyName,
@@ -202,51 +232,117 @@ export default function ProxiesPage() {
       });
     },
     onError: (error, proxyName) => {
-      setSnack({
+      showToast({
         severity: "error",
-        message: formatActionError(error, t("proxies.google_ping_failed", { name: proxyName })),
+        message: formatApiError(error, t("proxies.google_ping_failed", { name: proxyName })),
       });
     },
   });
 
-  async function handleTestAll() {
-    if (testTargetNames.length === 0) {
-      setSnack({
-        severity: "info",
-        message: t("proxies.no_nodes_to_test"),
+  const handleTestNode = useCallback((name: string) => {
+    setTestingNodes((current) => new Set(current).add(name));
+    pingGoogleWithProxy(name)
+      .then((response) => {
+        const delay = response.data.delay > 0 ? response.data.delay : -1;
+        setDelayOverrides((current) => ({ ...current, [name]: delay }));
+      })
+      .catch(() => {
+        setDelayOverrides((current) => ({ ...current, [name]: -1 }));
+      })
+      .finally(() => {
+        setTestingNodes((current) => {
+          const next = new Set(current);
+          next.delete(name);
+          return next;
+        });
       });
-      return;
-    }
+  }, []);
 
-    setIsTestingAll(true);
-    const results = await runWithConcurrency(
-      testTargetNames,
-      DELAY_TEST_CONCURRENCY,
-      (name) =>
-        mihomoApi.get(
-          `/proxies/${encodeURIComponent(name)}/delay?timeout=5000&url=https://www.gstatic.com/generate_204`
-        )
-    );
-    setIsTestingAll(false);
-    await qc.invalidateQueries({ queryKey: ["proxies"] });
+  const runBatchTest = useCallback(
+    async (names: string[]) => {
+      const targets = Array.from(new Set(names));
+      if (targets.length === 0) {
+        showToast({ severity: "info", message: t("proxies.no_nodes_to_test") });
+        return;
+      }
 
-    const failedCount = results.filter((result) => result.status === "rejected").length;
-    if (failedCount === 0) {
-      setSnack({
-        severity: "success",
-        message: t("proxies.delay_test_success", { count: testTargetNames.length }),
+      setBatchProgress({ done: 0, total: targets.length });
+      setTestingNodes((current) => {
+        const next = new Set(current);
+        targets.forEach((name) => next.add(name));
+        return next;
       });
-      return;
-    }
 
-    setSnack({
-      severity: failedCount === testTargetNames.length ? "error" : "warning",
-      message: t("proxies.delay_test_partial", {
-        success: testTargetNames.length - failedCount,
-        failed: failedCount,
-      }),
-    });
-  }
+      try {
+        const results = await runWithConcurrency(
+          targets,
+          DELAY_TEST_CONCURRENCY,
+          (name) => pingGoogleWithProxy(name).then((response) => response.data),
+          (index, result) => {
+            // Stream each result into the override map so delays show up as
+            // nodes finish, not after the whole batch.
+            const name = targets[index];
+            const delay =
+              result.status === "fulfilled" && result.value.delay > 0
+                ? result.value.delay
+                : -1;
+            setDelayOverrides((current) => ({ ...current, [name]: delay }));
+            setTestingNodes((current) => {
+              const next = new Set(current);
+              next.delete(name);
+              return next;
+            });
+            setBatchProgress((current) =>
+              current ? { done: current.done + 1, total: current.total } : current
+            );
+          }
+        );
+
+        const failedCount = results.filter((result) => result.status === "rejected").length;
+        if (failedCount === 0) {
+          showToast({
+            severity: "success",
+            message: t("proxies.delay_test_success", { count: targets.length }),
+          });
+        } else {
+          showToast({
+            severity: failedCount === targets.length ? "error" : "warning",
+            message: t("proxies.delay_test_partial", {
+              success: targets.length - failedCount,
+              failed: failedCount,
+            }),
+          });
+        }
+      } finally {
+        setBatchProgress(null);
+        setTestingNodes((current) => {
+          const next = new Set(current);
+          targets.forEach((name) => next.delete(name));
+          return next;
+        });
+        await qc.invalidateQueries({ queryKey: proxyQueryKey });
+      }
+    },
+    [qc, showToast, t]
+  );
+
+  const handleTestGroup = useCallback(
+    (groupName: string) => {
+      const group = displayGroups.find((candidate) => candidate.groupName === groupName);
+      if (group) void runBatchTest(group.visibleNames);
+    },
+    [displayGroups, runBatchTest]
+  );
+
+  const handleToggleCollapsed = useCallback(
+    (groupName: string) => {
+      // While a search forces every panel open, toggling would silently write
+      // a collapsed state that only takes effect after the search is cleared.
+      if (searchActive) return;
+      toggleGroupCollapsed(groupName, !pinnedGroupNames.includes(groupName));
+    },
+    [pinnedGroupNames, searchActive, toggleGroupCollapsed]
+  );
 
   if (isLoading) {
     return (
@@ -277,8 +373,8 @@ export default function ProxiesPage() {
         <TextField
           size="small"
           placeholder={t("proxies.search")}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          value={searchInput}
+          onChange={(event) => setSearchInput(event.target.value)}
           sx={{ flex: 1, minWidth: 260 }}
           slotProps={{
             input: {
@@ -322,18 +418,35 @@ export default function ProxiesPage() {
         )}
         <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
           {!isProvidersTab && (
+            // Fixed-width slot so the chip appearing/disappearing doesn't
+            // shift the toolbar buttons when a batch test starts.
+            <Box sx={{ minWidth: 128, display: "flex", justifyContent: "flex-end" }}>
+              {batchProgress && (
+                <Chip
+                  size="small"
+                  variant="outlined"
+                  label={t("proxies.testing_progress", {
+                    done: batchProgress.done,
+                    total: batchProgress.total,
+                  })}
+                  sx={{ fontVariantNumeric: "tabular-nums" }}
+                />
+              )}
+            </Box>
+          )}
+          {!isProvidersTab && (
             <Tooltip title={t("proxies.delay_test_all")}>
               <span>
                 <IconButton
-                  onClick={() => void handleTestAll()}
-                  disabled={isTestingAll}
+                  onClick={() => void runBatchTest(testTargetNames)}
+                  disabled={isBatchTesting}
                   sx={(theme) => ({
                     border: 1,
                     borderColor: "divider",
                     bgcolor: alpha(theme.palette.background.paper, 0.56),
                   })}
                 >
-                  {isTestingAll ? <CircularProgress size={20} /> : <SpeedIcon />}
+                  {isBatchTesting ? <CircularProgress size={20} /> : <SpeedIcon />}
                 </IconButton>
               </span>
             </Tooltip>
@@ -341,30 +454,19 @@ export default function ProxiesPage() {
           <Tooltip title={t("proxies.refresh")}>
             <span>
               <IconButton
-                onClick={() => void refetch()}
-                disabled={isFetching}
+                onClick={handleManualRefresh}
+                disabled={manualRefreshing}
                 sx={(theme) => ({
                   border: 1,
                   borderColor: "divider",
                   bgcolor: alpha(theme.palette.background.paper, 0.56),
                 })}
               >
-                {isFetching ? <CircularProgress size={20} /> : <RefreshIcon />}
+                {manualRefreshing ? <CircularProgress size={20} /> : <RefreshIcon />}
               </IconButton>
             </span>
           </Tooltip>
         </Box>
-        {!isProvidersTab && (
-          <Button
-            variant="outlined"
-            startIcon={pingGoogle.isPending ? <CircularProgress size={16} /> : <SpeedIcon />}
-            onClick={() => primarySelection && pingGoogle.mutate(primarySelection.nodeName)}
-            disabled={!primarySelection || pingGoogle.isPending}
-            sx={{ minWidth: 150 }}
-          >
-            {pingGoogle.isPending ? t("proxies.google_pinging") : t("proxies.google_ping")}
-          </Button>
-        )}
       </Box>
 
       {!isProvidersTab && (
@@ -391,143 +493,59 @@ export default function ProxiesPage() {
       </Tabs>
 
       {tab <= GROUP_TYPES.length ? (
-        displayGroups.length > 0 ? (
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 2 }}>
+        isError && !data ? (
+          <Alert
+            severity="error"
+            action={
+              <Button color="inherit" size="small" onClick={() => void refetch()}>
+                {t("common.retry")}
+              </Button>
+            }
+          >
+            {t("proxies.load_failed")}
+          </Alert>
+        ) : displayGroups.length > 0 ? (
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "repeat(12, 1fr)",
+              gap: 2,
+              // Keep collapsed panels compact instead of stretching them to
+              // the tallest panel in the same grid row.
+              alignItems: "start",
+            }}
+          >
             {displayGroups.map((group) => (
-              <SystemPanel
+              <ProxyGroupPanel
                 key={group.groupName}
+                groupName={group.groupName}
+                type={group.type}
+                now={group.now}
+                pinned={group.pinned}
+                collapsed={group.collapsed}
+                summary={group.summary}
+                visibleNames={group.visibleNames}
+                proxies={proxies}
+                delayOverrides={delayOverrides}
+                testingNodes={testingNodes}
+                pendingSelection={pendingSelection}
+                batchTesting={isBatchTesting}
+                collapseLocked={searchActive}
+                onTogglePinned={togglePinnedGroup}
+                onToggleCollapsed={handleToggleCollapsed}
+                onTestGroup={handleTestGroup}
+                onSelectNode={handleSelectNode}
+                onTestNode={handleTestNode}
                 sx={{ gridColumn: { xs: "span 12", lg: "span 6", xl: "span 4" } }}
-              >
-                <CardContent sx={{ p: 2, "&:last-child": { pb: 2 } }}>
-                  <GroupHeader
-                    groupName={group.groupName}
-                    type={group.type}
-                    current={group.now}
-                    pinned={group.pinned}
-                    summary={group.summary}
-                    onTogglePinned={() => togglePinnedGroup(group.groupName)}
-                  />
-
-                  <Grid container spacing={1}>
-                    {group.visibleNames.map((name) => {
-                      const proxy = proxies[name];
-                      const delay = getDelay(proxy);
-                      const isActive = name === group.now;
-                      const isSelecting =
-                        selectProxy.isPending &&
-                        pendingSelection?.group === group.groupName &&
-                        pendingSelection.name === name;
-
-                      return (
-                        <Grid key={name} size={{ xs: 12, sm: 6 }}>
-                          <ProxyNodeCard
-                            name={name}
-                            type={proxy?.type}
-                            delay={delay}
-                            active={isActive}
-                            selecting={isSelecting}
-                            disabled={selectProxy.isPending}
-                            onSelect={() => selectProxy.mutate({ group: group.groupName, name })}
-                          />
-                        </Grid>
-                      );
-                    })}
-                  </Grid>
-                </CardContent>
-              </SystemPanel>
+              />
             ))}
           </Box>
         ) : (
           <Alert severity="info">{t("proxies.empty_groups")}</Alert>
         )
       ) : (
-        <ProxyProviders
-          proxies={proxies}
-          search={search}
-          onNotify={(severity, message) => setSnack({ severity, message })}
-        />
+        <ProxyProviders proxies={proxies} search={search} />
       )}
-
-      <Snackbar
-        open={!!snack}
-        autoHideDuration={2500}
-        onClose={() => setSnack(null)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert severity={snack?.severity ?? "info"} onClose={() => setSnack(null)}>
-          {snack?.message}
-        </Alert>
-      </Snackbar>
-    </Box>
-  );
-}
-
-function GroupHeader({
-  groupName,
-  type,
-  current,
-  pinned,
-  summary,
-  onTogglePinned,
-}: {
-  groupName: string;
-  type: string;
-  current?: string;
-  pinned: boolean;
-  summary: GroupSummary;
-  onTogglePinned: () => void;
-}) {
-  const { t } = useTranslation();
-  const availablePercent = summary.totalNodes > 0
-    ? Math.round((summary.availableNodes / summary.totalNodes) * 100)
-    : 0;
-
-  return (
-    <Box sx={{ mb: 1.75 }}>
-      <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 1.5, mb: 1.5 }}>
-        <Box sx={{ minWidth: 0 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.75 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 800, minWidth: 0, ...oneLineText }}>
-              {groupName}
-            </Typography>
-            <Chip label={type} size="small" variant="outlined" sx={{ height: 22 }} />
-          </Box>
-          <Typography variant="caption" color="text.secondary" sx={{ display: "block", ...oneLineText }}>
-            {current ? t("proxies.current_selected", { name: current }) : t("proxies.no_current_selected")}
-          </Typography>
-        </Box>
-        <Tooltip title={pinned ? t("proxies.unpin_group") : t("proxies.pin_group")}>
-          <IconButton
-            size="small"
-            color={pinned ? "warning" : "default"}
-            onClick={onTogglePinned}
-            aria-label={pinned ? t("proxies.unpin_group") : t("proxies.pin_group")}
-            sx={(theme) => ({
-              border: 1,
-              borderColor: pinned ? alpha(theme.palette.warning.main, 0.42) : "divider",
-              backgroundColor: pinned ? alpha(theme.palette.warning.main, 0.12) : alpha(theme.palette.background.default, 0.34),
-            })}
-          >
-            {pinned ? <StarIcon fontSize="small" /> : <StarBorderIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
-      </Box>
-      <Box sx={(theme) => ({ p: 1.25, borderRadius: 0, border: 1, borderColor: "divider", backgroundColor: alpha(theme.palette.background.default, 0.32) })}>
-        <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.75 }}>
-          <Typography variant="caption" color="text.secondary">
-            {t("proxies.summary_available", { available: summary.availableNodes, total: summary.totalNodes })}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">
-            {availablePercent}%
-          </Typography>
-        </Box>
-        <LinearProgress variant="determinate" value={availablePercent} color={summary.availableNodes > 0 ? "success" : "inherit"} sx={{ height: 5, mb: 1 }} />
-        <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1 }}>
-          <Metric label={t("proxies.metric_current")} value={summary.activeDelay !== null ? `${summary.activeDelay}ms` : "--"} />
-          <Metric label={t("proxies.metric_best")} value={summary.bestDelay !== null ? `${summary.bestDelay}ms` : "--"} />
-          <Metric label={t("proxies.metric_average")} value={summary.averageDelay !== null ? `${summary.averageDelay}ms` : "--"} />
-        </Box>
-      </Box>
     </Box>
   );
 }
@@ -605,107 +623,16 @@ function ActiveSelectionPanel({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <Box sx={{ minWidth: 0 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ display: "block", lineHeight: 1.2 }}>
-        {label}
-      </Typography>
-      <Typography variant="caption" sx={{ display: "block", fontWeight: 800, ...oneLineText }}>
-        {value}
-      </Typography>
-    </Box>
-  );
-}
-
-function getDelayColor(delay: number): "success" | "warning" | "error" | "default" {
-  if (delay < 0) return "default";
-  if (delay <= 500) return "success";
-  if (delay <= 1200) return "warning";
-  return "error";
-}
-
-function ProxyNodeCard({
-  name,
-  type,
-  delay,
-  active,
-  selecting,
-  disabled,
-  onSelect,
-}: {
-  name: string;
-  type?: string;
-  delay: number;
-  active: boolean;
-  selecting: boolean;
-  disabled: boolean;
-  onSelect: () => void;
-}) {
-  const { t } = useTranslation();
-  const delayColor = getDelayColor(delay);
-
-  return (
-    <Button
-      fullWidth
-      variant="outlined"
-      disabled={disabled && !selecting}
-      onClick={active ? undefined : onSelect}
-      sx={(theme) => ({
-        minHeight: 68,
-        justifyContent: "flex-start",
-        textAlign: "left",
-        borderRadius: 0,
-        p: 1.25,
-        borderColor: active ? alpha(theme.palette.primary.main, 0.78) : "divider",
-        backgroundColor: active
-          ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.16 : 0.08)
-          : alpha(theme.palette.background.default, theme.palette.mode === "dark" ? 0.28 : 0.42),
-        color: "text.primary",
-        boxShadow: active ? `inset 0 0 0 1px ${alpha(theme.palette.primary.main, 0.26)}` : "none",
-        "&:hover": {
-          borderColor: active ? alpha(theme.palette.primary.main, 0.86) : alpha(theme.palette.primary.main, 0.5),
-          backgroundColor: active
-            ? alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.2 : 0.1)
-            : alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.1 : 0.06),
-        },
-      })}
-    >
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%", minWidth: 0 }}>
-        <Box sx={{ display: "flex", alignItems: "center", color: active ? "primary.main" : "text.secondary" }}>
-          {selecting ? <CircularProgress size={18} /> : active ? <CheckCircleIcon fontSize="small" /> : <RadioButtonUncheckedIcon fontSize="small" />}
-        </Box>
-        <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="body2" sx={{ fontWeight: 800, lineHeight: 1.3, ...oneLineText }}>
-            {name}
-          </Typography>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mt: 0.5, minWidth: 0 }}>
-            {type && <Chip label={type} size="small" variant="outlined" sx={{ height: 20, maxWidth: 86 }} />}
-            <Chip
-              label={delay >= 0 ? `${delay}ms` : t("proxies.unavailable")}
-              size="small"
-              color={delayColor === "default" ? undefined : delayColor}
-              variant={delayColor === "default" ? "outlined" : "filled"}
-              sx={{ height: 20 }}
-            />
-          </Box>
-        </Box>
-      </Box>
-    </Button>
-  );
-}
-
 function ProxyProviders({
   proxies,
   search,
-  onNotify,
 }: {
   proxies: Record<string, ProxyItem>;
   search: string;
-  onNotify: (severity: AlertColor, message: string) => void;
 }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const showToast = useToast();
   const [vehicleFilter, setVehicleFilter] =
     useState<ProviderVehicleFilter>("all");
   const [pendingAction, setPendingAction] = useState<{
@@ -725,15 +652,18 @@ function ProxyProviders({
     onSuccess: async (_, name) => {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["proxyProviders"] }),
-        qc.invalidateQueries({ queryKey: ["proxies"] }),
+        qc.invalidateQueries({ queryKey: proxyQueryKey }),
       ]);
-      onNotify("success", t("proxies.provider_refresh_success", { name }));
+      showToast({
+        severity: "success",
+        message: t("proxies.provider_refresh_success", { name }),
+      });
     },
     onError: (error, name) => {
-      onNotify(
-        "error",
-        formatActionError(error, t("proxies.provider_refresh_failed", { name }))
-      );
+      showToast({
+        severity: "error",
+        message: formatApiError(error, t("proxies.provider_refresh_failed", { name })),
+      });
     },
     onSettled: () => setPendingAction(null),
   });
@@ -747,15 +677,18 @@ function ProxyProviders({
     onSuccess: async (_, name) => {
       await Promise.all([
         qc.invalidateQueries({ queryKey: ["proxyProviders"] }),
-        qc.invalidateQueries({ queryKey: ["proxies"] }),
+        qc.invalidateQueries({ queryKey: proxyQueryKey }),
       ]);
-      onNotify("success", t("proxies.provider_healthcheck_success", { name }));
+      showToast({
+        severity: "success",
+        message: t("proxies.provider_healthcheck_success", { name }),
+      });
     },
     onError: (error, name) => {
-      onNotify(
-        "error",
-        formatActionError(error, t("proxies.provider_healthcheck_failed", { name }))
-      );
+      showToast({
+        severity: "error",
+        message: formatApiError(error, t("proxies.provider_healthcheck_failed", { name })),
+      });
     },
     onSettled: () => setPendingAction(null),
   });

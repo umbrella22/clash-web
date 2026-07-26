@@ -121,7 +121,20 @@ function average(values: number[]): number | null {
 export function getDelay(proxy?: ProxyItem | null): number {
   const history = proxy?.history;
   if (!history || history.length === 0) return -1;
-  return history[history.length - 1].delay;
+  // mihomo records delay 0 when the URL test FAILED — treat it as unavailable,
+  // never as a (best-looking) 0ms result.
+  const delay = history[history.length - 1].delay;
+  return delay > 0 ? delay : -1;
+}
+
+export type DelayColor = "success" | "warning" | "error" | "default";
+
+/** Single source of truth for delay chip colors; <=0 means failed/untested. */
+export function getDelayColor(delay: number): DelayColor {
+  if (delay <= 0) return "default";
+  if (delay <= 300) return "success";
+  if (delay <= 800) return "warning";
+  return "error";
 }
 
 export function normalizeClashMode(mode?: string | null): ClashMode {

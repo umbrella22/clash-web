@@ -65,7 +65,12 @@
     "current_proxy_effective": "Effective Route",
     "current_proxy_effect_rule": "In rule mode, traffic matching {{group}} uses {{node}}.",
     "current_proxy_effect_global": "In global mode, all traffic uses GLOBAL's {{node}}.",
-    "current_proxy_effect_direct": "In direct mode, traffic does not use a proxy node."
+    "current_proxy_effect_direct": "In direct mode, traffic does not use a proxy node.",
+    "start": "Start",
+    "stop": "Stop",
+    "restart": "Restart",
+    "mihomo_not_installed": "mihomo is not installed.",
+    "status_load_failed": "Failed to reach the backend"
   },
   "proxies": {
     "title": "Proxies",
@@ -125,7 +130,13 @@
     "provider_healthcheck_success": "Provider {{name}} health check completed",
     "provider_healthcheck_failed": "Failed to run health check for provider {{name}}",
     "timeout": "Timeout",
-    "unavailable": "Unavailable"
+    "unavailable": "Unavailable",
+    "load_failed": "Failed to load proxies — backend unreachable",
+    "delay_timeout": "Timeout",
+    "test_group": "Test this group",
+    "testing_progress": "Testing {{done}}/{{total}}",
+    "collapse_group": "Collapse",
+    "expand_group": "Expand"
   },
   "profiles": {
     "title": "Profiles",
@@ -176,7 +187,24 @@
     "subscription_update_failed": "Failed",
     "subscription_update_attempts": "{{count}} attempts",
     "subscription_skipped_links": "{{count}} unparsable node(s) skipped",
-    "subscription_kept_old": "Kept old config"
+    "subscription_kept_old": "Kept old config",
+    "imported": "Imported",
+    "import_failed": "Import failed",
+    "activated": "Activated",
+    "activation_failed": "Activation failed",
+    "update_failed": "Update failed",
+    "deleted": "Deleted",
+    "delete_failed": "Delete failed",
+    "created": "Created",
+    "created_fetch_failed": "Created, but failed to fetch URL",
+    "create_failed": "Create failed",
+    "save_failed": "Save failed",
+    "update_all_done": "Update finished: {{ok}} succeeded, {{fail}} failed",
+    "empty_state": "No profiles yet. Create one or import a subscription URL to get started.",
+    "editor_dirty_confirm": "You have unsaved changes. Close anyway?",
+    "quota_used": "{{used}} of {{total}} used",
+    "expires_at": "Expires {{date}}",
+    "update_success": "Subscription updated"
   },
   "connections": {
     "title": "Connections",
@@ -213,7 +241,12 @@
     "close_success": "Connection closed.",
     "close_failed": "Failed to close connection.",
     "close_all_success": "All connections closed.",
-    "close_all_failed": "Failed to close all connections."
+    "close_all_failed": "Failed to close all connections.",
+    "load_failed": "Failed to load connections",
+    "paused_too_many": "Auto-refresh paused ({{count}} connections) — use refresh to update",
+    "close_all_confirm_title": "Close all connections?",
+    "close_all_confirm_body": "This terminates every active connection, including running downloads and streams.",
+    "sort_start_time": "Start time"
   },
   "logs": {
     "title": "Logs",
@@ -222,7 +255,14 @@
     "warning": "Warning",
     "error": "Error",
     "debug": "Debug",
-    "search": "Search logs..."
+    "search": "Search logs...",
+    "pause": "Pause",
+    "resume": "Resume",
+    "clear": "Clear",
+    "jump_to_latest": "{{count}} new — jump to latest",
+    "connecting": "Connecting to log stream...",
+    "reconnecting": "Reconnecting...",
+    "waiting": "Connected — waiting for logs..."
   },
   "rules": {
     "title": "Rules",
@@ -246,7 +286,9 @@
     "desc": "Descending",
     "empty": "No rules available.",
     "empty_filtered": "No rules match the current filters.",
-    "truncated": "Showing first {{shown}} of {{total}} matched rules."
+    "truncated": "Showing first {{shown}} of {{total}} matched rules.",
+    "sort_order": "Priority order",
+    "load_failed": "Failed to load rules"
   },
   "settings": {
     "title": "Settings",
@@ -297,10 +339,8 @@
     "download_status_extracting": "Extracting",
     "download_status_done": "Completed",
     "download_status_error": "Failed",
-    "system_proxy": "System Proxy",
     "system_proxy_desc": "Set system HTTP/SOCKS proxy via gsettings (GNOME)",
     "system_proxy_unavailable": "gsettings is unavailable in the current environment, likely not GNOME.",
-    "tun_mode": "TUN Mode",
     "tun_mode_desc": "Virtual network interface for transparent proxy",
     "tun_stack": "TUN Stack",
     "enable": "Enable",
@@ -369,6 +409,31 @@
     "proxy_environment_export_copied": "Proxy environment export command copied.",
     "proxy_environment_unset_copied": "Proxy environment unset command copied.",
     "proxy_environment_unavailable": "The current runtime config has no mixed-port, port, or socks-port, so proxy environment variables cannot be generated.",
-    "proxy_environment_copy_failed": "Failed to copy proxy environment command."
+    "proxy_environment_copy_failed": "Failed to copy proxy environment command.",
+    "saved": "Saved",
+    "save_failed": "Save failed",
+    "operation_failed": "Operation failed",
+    "version_check_failed": "Version check failed (GitHub may be unreachable). You can still install or retry.",
+    "confirm_restore_backup": "Restore this backup? Current configuration will be overwritten.",
+    "confirm_delete_backup": "Delete this backup?",
+    "confirm_restore_default": "Restore defaults? Your current values will be replaced.",
+    "system_proxy_failed": "Failed to toggle system proxy",
+    "tun_failed": "Failed to toggle TUN mode"
+  },
+  "common": {
+    "loading": "Loading...",
+    "retry": "Retry",
+    "refresh": "Refresh",
+    "all": "All",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "load_failed": "Failed to load data"
+  },
+  "shell": {
+    "link_up": "Proxy linked",
+    "link_down": "Proxy offline",
+    "link_waiting": "Waiting for mihomo",
+    "checking_auth": "Checking authentication..."
   }
 }

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   Alert,
   Box,
+  Button,
   Typography,
   IconButton,
   TextField,
@@ -22,14 +23,18 @@ import {
   Select,
   Tooltip,
 } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 import SearchIcon from "@mui/icons-material/Search";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import { useQuery } from "@tanstack/react-query";
 import {
   filterRules,
+  formatRuleSize,
   getRuleTypes,
+  indexRules,
   sortRules,
   summarizeRules,
+  type IndexedRuleItem,
   type RuleItem,
   type RulesResponse,
   type RuleSortKey,
@@ -43,10 +48,10 @@ export default function RulesPage() {
   const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<RuleTypeFilter>("all");
-  const [sortKey, setSortKey] = useState<RuleSortKey>("type");
+  const [sortKey, setSortKey] = useState<RuleSortKey>("order");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
-  const { data, isLoading, isFetching, refetch } = useQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ["rules"],
     queryFn: () => mihomoApi.get<RulesResponse>("/rules").then((r) => r.data),
   });
@@ -54,9 +59,11 @@ export default function RulesPage() {
   const allRules: RuleItem[] = useMemo(() => (data?.rules ?? []) as RuleItem[], [data]);
   const summary = useMemo(() => summarizeRules(allRules), [allRules]);
   const ruleTypes = useMemo(() => getRuleTypes(allRules), [allRules]);
+  // Index before filtering so "#" always shows the original match priority.
+  const indexedRules = useMemo(() => indexRules(allRules), [allRules]);
   const rules = useMemo(
-    () => sortRules(filterRules(allRules, search, typeFilter), sortKey, sortDirection),
-    [allRules, search, sortDirection, sortKey, typeFilter]
+    () => sortRules(filterRules(indexedRules, search, typeFilter), sortKey, sortDirection),
+    [indexedRules, search, sortDirection, sortKey, typeFilter]
   );
 
   if (isLoading)
@@ -125,13 +132,14 @@ export default function RulesPage() {
             value={sortKey}
             onChange={(event) => setSortKey(event.target.value as RuleSortKey)}
           >
+            <MenuItem value="order">{t("rules.sort_order")}</MenuItem>
             <MenuItem value="type">{t("rules.type")}</MenuItem>
             <MenuItem value="payload">{t("rules.payload")}</MenuItem>
             <MenuItem value="proxy">{t("rules.proxy")}</MenuItem>
             <MenuItem value="size">{t("rules.size")}</MenuItem>
           </Select>
         </FormControl>
-        <FormControl size="small" sx={{ minWidth: 130 }}>
+        <FormControl size="small" sx={{ minWidth: 130 }} disabled={sortKey === "order"}>
           <InputLabel>{t("rules.direction")}</InputLabel>
           <Select
             label={t("rules.direction")}
@@ -144,43 +152,96 @@ export default function RulesPage() {
         </FormControl>
       </Box>
 
-      <SystemPanel>
-        <TableContainer component={Paper} variant="outlined" sx={{ backgroundColor: "transparent" }}>
-        <Table size="small" stickyHeader>
-          <TableHead>
-            <TableRow>
-              <TableCell>{t("rules.type")}</TableCell>
-              <TableCell>{t("rules.payload")}</TableCell>
-              <TableCell>{t("rules.proxy")}</TableCell>
-              <TableCell>{t("rules.size")}</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {rules.slice(0, 500).map((r: RuleItem, i: number) => (
-              <TableRow key={i} hover>
-                <TableCell><Chip label={r.type} size="small" variant="outlined" /></TableCell>
-                <TableCell>
-                  <Typography variant="body2" sx={{ maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {r.payload}
-                  </Typography>
-                </TableCell>
-                <TableCell><Typography variant="body2">{r.proxy}</Typography></TableCell>
-                <TableCell><Typography variant="body2">{r.size ?? "-"}</Typography></TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        </TableContainer>
-      </SystemPanel>
-      {rules.length === 0 && (
-        <Alert severity="info" sx={{ mt: 2 }}>
-          {allRules.length === 0 ? t("rules.empty") : t("rules.empty_filtered")}
+      {isError ? (
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => void refetch()}>
+              {t("common.retry")}
+            </Button>
+          }
+        >
+          {t("rules.load_failed")}
         </Alert>
-      )}
-      {rules.length > 500 && (
-        <Alert severity="info" sx={{ mt: 2 }}>
-          {t("rules.truncated", { shown: 500, total: rules.length })}
-        </Alert>
+      ) : (
+        <>
+          <SystemPanel>
+            <TableContainer
+              component={Paper}
+              variant="outlined"
+              sx={{
+                backgroundColor: "transparent",
+                maxHeight: "calc(100vh - 340px)",
+                // The theme's head background is semi-transparent; give sticky
+                // header cells an opaque base so rows don't bleed through.
+                "& .MuiTableCell-stickyHeader": {
+                  backgroundColor: "background.default",
+                  backgroundImage: (theme) => {
+                    const tint = alpha(
+                      theme.palette.text.primary,
+                      theme.palette.mode === "dark" ? 0.055 : 0.05
+                    );
+                    return `linear-gradient(${tint}, ${tint})`;
+                  },
+                },
+              }}
+            >
+            <Table size="small" stickyHeader>
+              <TableHead>
+                <TableRow>
+                  <TableCell align="right" sx={{ width: 64 }}>#</TableCell>
+                  <TableCell>{t("rules.type")}</TableCell>
+                  <TableCell>{t("rules.payload")}</TableCell>
+                  <TableCell>{t("rules.proxy")}</TableCell>
+                  <TableCell align="right">{t("rules.size")}</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {rules.slice(0, 500).map((r: IndexedRuleItem) => (
+                  <TableRow key={r.index} hover>
+                    <TableCell align="right">
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontFamily: '"JetBrains Mono", "Courier New", monospace',
+                          fontVariantNumeric: "tabular-nums",
+                          color: "text.secondary",
+                        }}
+                      >
+                        {r.index}
+                      </Typography>
+                    </TableCell>
+                    <TableCell><Chip label={r.type} size="small" variant="outlined" /></TableCell>
+                    <TableCell>
+                      <Tooltip title={r.payload}>
+                        <Typography variant="body2" sx={{ maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {r.payload}
+                        </Typography>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell><Typography variant="body2">{r.proxy}</Typography></TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" sx={{ fontVariantNumeric: "tabular-nums" }}>
+                        {formatRuleSize(r.size)}
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            </TableContainer>
+          </SystemPanel>
+          {rules.length === 0 && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              {allRules.length === 0 ? t("rules.empty") : t("rules.empty_filtered")}
+            </Alert>
+          )}
+          {rules.length > 500 && (
+            <Alert severity="info" sx={{ mt: 2 }}>
+              {t("rules.truncated", { shown: 500, total: rules.length })}
+            </Alert>
+          )}
+        </>
       )}
     </Box>
   );

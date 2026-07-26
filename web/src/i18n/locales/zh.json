@@ -65,7 +65,12 @@
     "current_proxy_effective": "生效关系",
     "current_proxy_effect_rule": "规则模式下，命中 {{group}} 的流量会使用 {{node}}。",
     "current_proxy_effect_global": "全局模式下，所有流量会使用 GLOBAL 的 {{node}}。",
-    "current_proxy_effect_direct": "直连模式下，流量不会使用代理节点。"
+    "current_proxy_effect_direct": "直连模式下，流量不会使用代理节点。",
+    "start": "启动",
+    "stop": "停止",
+    "restart": "重启",
+    "mihomo_not_installed": "尚未安装 mihomo。",
+    "status_load_failed": "无法连接后端"
   },
   "proxies": {
     "title": "代理",
@@ -125,7 +130,13 @@
     "provider_healthcheck_success": "Provider {{name}} 健康检查已完成",
     "provider_healthcheck_failed": "Provider {{name}} 健康检查失败",
     "timeout": "超时",
-    "unavailable": "不可用"
+    "unavailable": "不可用",
+    "load_failed": "代理列表加载失败——后端不可达",
+    "delay_timeout": "超时",
+    "test_group": "测试该组",
+    "testing_progress": "测速中 {{done}}/{{total}}",
+    "collapse_group": "收起",
+    "expand_group": "展开"
   },
   "profiles": {
     "title": "配置文件",
@@ -176,7 +187,24 @@
     "subscription_update_failed": "失败",
     "subscription_update_attempts": "尝试 {{count}} 次",
     "subscription_skipped_links": "跳过 {{count}} 个无法解析的节点",
-    "subscription_kept_old": "已保留旧配置"
+    "subscription_kept_old": "已保留旧配置",
+    "imported": "已导入",
+    "import_failed": "导入失败",
+    "activated": "已激活",
+    "activation_failed": "激活失败",
+    "update_failed": "更新失败",
+    "deleted": "已删除",
+    "delete_failed": "删除失败",
+    "created": "已创建",
+    "created_fetch_failed": "已创建，但订阅下载失败",
+    "create_failed": "创建失败",
+    "save_failed": "保存失败",
+    "update_all_done": "更新完成：成功 {{ok}} 个，失败 {{fail}} 个",
+    "empty_state": "还没有配置。新建一个，或导入订阅 URL 开始使用。",
+    "editor_dirty_confirm": "有未保存的修改，确定关闭吗？",
+    "quota_used": "已用 {{used}} / {{total}}",
+    "expires_at": "{{date}} 到期",
+    "update_success": "订阅已更新"
   },
   "connections": {
     "title": "连接",
@@ -213,7 +241,12 @@
     "close_success": "连接已关闭。",
     "close_failed": "关闭连接失败。",
     "close_all_success": "已关闭全部连接。",
-    "close_all_failed": "关闭全部连接失败。"
+    "close_all_failed": "关闭全部连接失败。",
+    "load_failed": "连接列表加载失败",
+    "paused_too_many": "连接数过多（{{count}}），已暂停自动刷新，请手动刷新",
+    "close_all_confirm_title": "关闭全部连接？",
+    "close_all_confirm_body": "将断开所有活动连接，包括正在进行的下载和流媒体。",
+    "sort_start_time": "开始时间"
   },
   "logs": {
     "title": "日志",
@@ -222,7 +255,14 @@
     "warning": "警告",
     "error": "错误",
     "debug": "调试",
-    "search": "搜索日志..."
+    "search": "搜索日志...",
+    "pause": "暂停",
+    "resume": "继续",
+    "clear": "清空",
+    "jump_to_latest": "新增 {{count}} 条——回到最新",
+    "connecting": "正在连接日志流…",
+    "reconnecting": "重连中…",
+    "waiting": "已连接——等待日志…"
   },
   "rules": {
     "title": "规则",
@@ -246,7 +286,9 @@
     "desc": "降序",
     "empty": "当前没有规则。",
     "empty_filtered": "没有规则匹配当前筛选条件。",
-    "truncated": "仅显示前 {{shown}} 条，共 {{total}} 条匹配规则。"
+    "truncated": "仅显示前 {{shown}} 条，共 {{total}} 条匹配规则。",
+    "sort_order": "优先级顺序",
+    "load_failed": "规则加载失败"
   },
   "settings": {
     "title": "设置",
@@ -297,10 +339,8 @@
     "download_status_extracting": "解压中",
     "download_status_done": "已完成",
     "download_status_error": "失败",
-    "system_proxy": "系统代理",
     "system_proxy_desc": "通过 gsettings 设置系统 HTTP/SOCKS 代理 (GNOME)",
     "system_proxy_unavailable": "gsettings 不可用，当前环境可能不是 GNOME。",
-    "tun_mode": "TUN 模式",
     "tun_mode_desc": "虚拟网卡透明代理",
     "tun_stack": "TUN 协议栈",
     "enable": "启用",
@@ -369,6 +409,31 @@
     "proxy_environment_export_copied": "代理环境变量 export 命令已复制。",
     "proxy_environment_unset_copied": "代理环境变量 unset 命令已复制。",
     "proxy_environment_unavailable": "当前 runtime 配置缺少 mixed-port、port 或 socks-port，无法生成代理环境变量。",
-    "proxy_environment_copy_failed": "复制代理环境变量失败。"
+    "proxy_environment_copy_failed": "复制代理环境变量失败。",
+    "saved": "已保存",
+    "save_failed": "保存失败",
+    "operation_failed": "操作失败",
+    "version_check_failed": "版本检查失败（可能无法访问 GitHub），仍可直接安装或重试。",
+    "confirm_restore_backup": "恢复该备份？当前配置将被覆盖。",
+    "confirm_delete_backup": "删除该备份？",
+    "confirm_restore_default": "恢复默认值？当前设置将被替换。",
+    "system_proxy_failed": "系统代理切换失败",
+    "tun_failed": "TUN 模式切换失败"
+  },
+  "common": {
+    "loading": "加载中…",
+    "retry": "重试",
+    "refresh": "刷新",
+    "all": "全部",
+    "cancel": "取消",
+    "confirm": "确认",
+    "close": "关闭",
+    "load_failed": "数据加载失败"
+  },
+  "shell": {
+    "link_up": "内核已连接",
+    "link_down": "内核离线",
+    "link_waiting": "等待 mihomo",
+    "checking_auth": "正在验证身份…"
   }
 }

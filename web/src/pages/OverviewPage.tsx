@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useMemo, useState, type ReactNode } from "react";
 import {
-  type AlertColor,
   Box,
   Card,
   CardContent,
@@ -17,9 +16,7 @@ import {
   CircularProgress,
   MenuItem,
   Select,
-  Snackbar,
   Tooltip,
-  useTheme,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import AccountTreeIcon from "@mui/icons-material/AccountTree";
@@ -39,10 +36,10 @@ import {
   useRestartMihomo,
   usePreferences,
 } from "../hooks/useApi";
-import { useTraffic, useMemory } from "../hooks/useStream";
 import {
   getCurrentProxyTarget,
   getDelay,
+  getDelayColor,
   normalizeClashMode,
   type ClashMode,
 } from "../features/proxies";
@@ -65,18 +62,22 @@ import {
   isDownloadTaskActive,
 } from "../features/mihomoDownload";
 import { useMihomoDownloadTaskContext } from "../contexts/MihomoDownloadTaskContext";
-import RealtimeLineChart from "../components/RealtimeLineChart";
 import { PageTitle } from "../components/SystemChrome";
+import { useToast } from "../components/toastContext";
+import { formatApiError } from "../utils/errors";
+import TrafficCard from "../components/overview/TrafficCard";
+import MemoryCard from "../components/overview/MemoryCard";
+import {
+  metricPanelSx,
+  sharedCardContentSx,
+  sharedCardSx,
+} from "../components/overview/overviewCardStyles";
 import {
   getOverviewCardOrder,
   isOverviewCardVisible,
   normalizeOverviewCards,
   type OverviewCardId,
 } from "../features/preferences";
-
-function formatSpeed(bytes: number): string {
-  return formatBytes(bytes) + "/s";
-}
 
 function formatUptime(secs: number): string {
   const d = Math.floor(secs / 86400);
@@ -108,11 +109,6 @@ const MODE_ICONS: Record<Mode, ReactNode> = {
 
 const CURRENT_PROXY_RULE_GROUP_STORAGE_KEY = "clash-web-current-proxy-rule-group";
 
-type OverviewSnack = {
-  severity: AlertColor;
-  message: string;
-};
-
 function readStoredRuleGroup(): string {
   if (typeof window === "undefined") return "";
   return localStorage.getItem(CURRENT_PROXY_RULE_GROUP_STORAGE_KEY) ?? "";
@@ -123,17 +119,14 @@ function writeStoredRuleGroup(groupName: string) {
   localStorage.setItem(CURRENT_PROXY_RULE_GROUP_STORAGE_KEY, groupName);
 }
 
-function getDelayColor(delay: number): "success" | "warning" | "error" | "default" {
-  if (delay < 0) return "default";
-  if (delay <= 500) return "success";
-  if (delay <= 1200) return "warning";
-  return "error";
-}
-
 export default function OverviewPage() {
   const { t } = useTranslation();
-  const theme = useTheme();
-  const { data: status, isLoading } = useStatus();
+  const {
+    data: status,
+    isLoading,
+    isError: statusLoadFailed,
+    refetch: refetchStatus,
+  } = useStatus();
   const { data: modeData } = useMode();
   const setMode = useSetMode();
   const startMihomo = useStartMihomo();
@@ -144,9 +137,7 @@ export default function OverviewPage() {
   const selectProxy = useSelectProxy();
   const testProxyDelay = useTestProxyDelay();
   const [selectedRuleGroupName, setSelectedRuleGroupName] = useState(readStoredRuleGroup);
-  const [quickProxySnack, setQuickProxySnack] = useState<OverviewSnack | null>(null);
-  const { traffic, history, status: trafficStreamStatus } = useTraffic();
-  const { memory, history: memoryHistory, status: memoryStreamStatus } = useMemory();
+  const showToast = useToast();
   const { progress, actionError, actionPending, runDownloadAction } =
     useMihomoDownloadTaskContext();
 
@@ -163,10 +154,6 @@ export default function OverviewPage() {
   const activeProgress = isDownloadTaskActive(progress) ? progress : null;
   const currentMode = normalizeClashMode(modeData?.mode);
   const isRunning = status?.mihomo_running ?? false;
-  const memUsed = memory.inuse;
-  const memoryLimitFromHistory = memoryHistory.findLast((item) => item.oslimit > 0)?.oslimit ?? 0;
-  const memTotal = memory.oslimit > 0 ? memory.oslimit : memoryLimitFromHistory;
-  const memPct = memTotal > 0 ? (memUsed / memTotal) * 100 : 0;
   const progressStatusKey = activeProgress
     ? `settings.download_status_${describeDownloadStatus(activeProgress.status)}`
     : "settings.download_status_idle";
@@ -175,42 +162,6 @@ export default function OverviewPage() {
     activeProgress && activeProgress.total > 0
       ? `${formatBytes(activeProgress.downloaded)} / ${formatBytes(activeProgress.total)}`
       : formatBytes(activeProgress?.downloaded);
-  const trafficLabels = useMemo(
-    () => Array.from({ length: Math.max(history.length, 12) }, (_, index) => `${index + 1}`),
-    [history.length]
-  );
-  const memoryLabels = useMemo(
-    () => Array.from({ length: Math.max(memoryHistory.length, 12) }, (_, index) => `${index + 1}`),
-    [memoryHistory.length]
-  );
-  const trafficSeries = useMemo(
-    () => [
-      {
-        label: t("overview.upload"),
-        values: trafficLabels.map((_, index) => history[index]?.up ?? 0),
-        borderColor: theme.palette.info.main,
-        backgroundColor: alpha(theme.palette.info.main, 0.12),
-      },
-      {
-        label: t("overview.download"),
-        values: trafficLabels.map((_, index) => history[index]?.down ?? 0),
-        borderColor: theme.palette.success.main,
-        backgroundColor: alpha(theme.palette.success.main, 0.12),
-      },
-    ],
-    [history, t, theme.palette.info.main, theme.palette.success.main, trafficLabels]
-  );
-  const memorySeries = useMemo(
-    () => [
-      {
-        label: t("overview.memory"),
-        values: memoryLabels.map((_, index) => memoryHistory[index]?.inuse ?? 0),
-        borderColor: theme.palette.secondary.main,
-        backgroundColor: alpha(theme.palette.secondary.main, 0.12),
-      },
-    ],
-    [memoryHistory, memoryLabels, t, theme.palette.secondary.main]
-  );
   const currentProxyTarget = useMemo(
     () => getCurrentProxyTarget(proxies, currentMode, selectedRuleGroupName),
     [currentMode, proxies, selectedRuleGroupName]
@@ -220,15 +171,15 @@ export default function OverviewPage() {
   const pingGoogle = useMutation({
     mutationFn: (name: string) => pingGoogleWithProxy(name).then((response) => response.data),
     onSuccess: (result, name) => {
-      setQuickProxySnack({
+      showToast({
         severity: "success",
         message: t("proxies.google_ping_success", { name, delay: result.delay }),
       });
     },
-    onError: (_, name) => {
-      setQuickProxySnack({
+    onError: (error, name) => {
+      showToast({
         severity: "error",
-        message: t("proxies.google_ping_failed", { name }),
+        message: formatApiError(error, t("proxies.google_ping_failed", { name })),
       });
     },
   });
@@ -236,26 +187,6 @@ export default function OverviewPage() {
     () => normalizeOverviewCards(preferences?.overview_cards),
     [preferences?.overview_cards]
   );
-  const sharedCardSx = {
-    display: "flex",
-    width: "100%",
-    height: "100%",
-    minHeight: 340,
-  } as const;
-  const sharedCardContentSx = {
-    display: "flex",
-    flexDirection: "column",
-    gap: 1.5,
-    width: "100%",
-    height: "100%",
-  } as const;
-  const metricPanelSx = {
-    p: 1.5,
-    border: 1,
-    borderColor: "divider",
-    borderRadius: 0,
-    bgcolor: "background.default",
-  } as const;
 
   const handleToggle = () => {
     if (isRunning) stopMihomo.mutate();
@@ -272,7 +203,7 @@ export default function OverviewPage() {
       { group: currentProxyTarget.groupName, name },
       {
         onSuccess: () => {
-          setQuickProxySnack({
+          showToast({
             severity: "success",
             message: t("proxies.switch_success", {
               group: currentProxyTarget.groupName,
@@ -280,13 +211,16 @@ export default function OverviewPage() {
             }),
           });
         },
-        onError: () => {
-          setQuickProxySnack({
+        onError: (error) => {
+          showToast({
             severity: "error",
-            message: t("proxies.switch_failed", {
-              group: currentProxyTarget.groupName,
-              name,
-            }),
+            message: formatApiError(
+              error,
+              t("proxies.switch_failed", {
+                group: currentProxyTarget.groupName,
+                name,
+              })
+            ),
           });
         },
       }
@@ -297,19 +231,22 @@ export default function OverviewPage() {
 
     setMode.mutate(mode, {
       onSuccess: () => {
-        setQuickProxySnack({
+        showToast({
           severity: "success",
           message: t("overview.mode_switch_success", {
             mode: t(`overview.mode_${mode}`),
           }),
         });
       },
-      onError: () => {
-        setQuickProxySnack({
+      onError: (error) => {
+        showToast({
           severity: "error",
-          message: t("overview.mode_switch_failed", {
-            mode: t(`overview.mode_${mode}`),
-          }),
+          message: formatApiError(
+            error,
+            t("overview.mode_switch_failed", {
+              mode: t(`overview.mode_${mode}`),
+            })
+          ),
         });
       },
     });
@@ -319,15 +256,15 @@ export default function OverviewPage() {
 
     testProxyDelay.mutate(currentProxyTarget.nodeName, {
       onSuccess: () => {
-        setQuickProxySnack({
+        showToast({
           severity: "success",
           message: t("proxies.delay_test_success", { count: 1 }),
         });
       },
-      onError: () => {
-        setQuickProxySnack({
+      onError: (error) => {
+        showToast({
           severity: "error",
-          message: t("proxies.google_ping_failed", { name: currentProxyTarget.nodeName }),
+          message: formatApiError(error, t("proxies.summary_current_delay_na")),
         });
       },
     });
@@ -341,7 +278,28 @@ export default function OverviewPage() {
     order: getOverviewCardOrder(overviewCards, id),
   });
 
-  if (isLoading) return <Typography>Loading...</Typography>;
+  if (isLoading) return <Typography>{t("common.loading")}</Typography>;
+
+  // Full-page error only when there is no cached data at all — a transient
+  // background-poll failure must not unmount the live charts (they own their
+  // WebSocket streams and would lose accumulated history).
+  if (statusLoadFailed && !status) {
+    return (
+      <Box>
+        <PageTitle title={t("overview.title")} eyebrow="NETWORK OVERVIEW" />
+        <Alert
+          severity="error"
+          action={
+            <Button color="inherit" size="small" onClick={() => refetchStatus()}>
+              {t("common.retry")}
+            </Button>
+          }
+        >
+          {t("overview.status_load_failed")}
+        </Alert>
+      </Box>
+    );
+  }
 
   return (
     <Box>
@@ -363,9 +321,8 @@ export default function OverviewPage() {
             </Button>
           }
         >
-          mihomo is not installed.
-          {installInfo?.latest_version && ` Latest: ${installInfo.latest_version}`}
-          {" "}(Arch: {installInfo?.arch})
+          {t("overview.mihomo_not_installed")}
+          {installInfo?.latest_version ? ` (${installInfo.latest_version}, ${installInfo.arch})` : ""}
         </Alert>
       )}
 
@@ -446,12 +403,6 @@ export default function OverviewPage() {
             </Grid>
           </CardContent>
         </Card>
-      )}
-
-      {mihomoInstalled && installInfo?.version && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          mihomo detected: {installInfo.version} ({installInfo.path})
-        </Alert>
       )}
 
       <Grid container spacing={2}>
@@ -572,7 +523,7 @@ export default function OverviewPage() {
                     disabled={startMihomo.isPending || stopMihomo.isPending}
                     color={isRunning ? "error" : "success"}
                   >
-                    {isRunning ? "Stop" : "Start"}
+                    {isRunning ? t("overview.stop") : t("overview.start")}
                   </Button>
                   <Button
                     variant="outlined"
@@ -581,7 +532,7 @@ export default function OverviewPage() {
                     onClick={() => restartMihomo.mutate()}
                     disabled={restartMihomo.isPending}
                   >
-                    Restart
+                    {t("overview.restart")}
                   </Button>
                 </Box>
               </Box>
@@ -707,7 +658,7 @@ export default function OverviewPage() {
                       {currentMode !== "direct" ? (
                         <Chip
                           label={
-                            currentProxyTarget.nodeDelay >= 0
+                            currentProxyTarget.nodeDelay > 0
                               ? `${currentProxyTarget.nodeDelay}ms`
                               : t("proxies.unavailable")
                           }
@@ -775,7 +726,7 @@ export default function OverviewPage() {
                                   </Typography>
                                   {currentMode !== "direct" ? (
                                     <Chip
-                                      label={delay >= 0 ? `${delay}ms` : t("proxies.unavailable")}
+                                      label={delay > 0 ? `${delay}ms` : t("proxies.unavailable")}
                                       size="small"
                                       color={delayColor === "default" ? undefined : delayColor}
                                       variant={delayColor === "default" ? "outlined" : "filled"}
@@ -814,7 +765,7 @@ export default function OverviewPage() {
                                       ) : null}
                                     </Box>
                                     <Chip
-                                      label={delay >= 0 ? `${delay}ms` : t("proxies.unavailable")}
+                                      label={delay > 0 ? `${delay}ms` : t("proxies.unavailable")}
                                       size="small"
                                       color={delayColor === "default" ? undefined : delayColor}
                                       variant={delayColor === "default" ? "outlined" : "filled"}
@@ -931,181 +882,16 @@ export default function OverviewPage() {
           </Card>
         </Grid>
 
-        {/* Traffic Card */}
+        {/* Traffic Card — owns its own WS stream so realtime updates stay local */}
         <Grid size={{ xs: 12, md: 6 }} sx={getCardGridSx("traffic")}>
-          <Card sx={sharedCardSx}>
-            <CardContent sx={sharedCardContentSx}>
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: { xs: "flex-start", md: "center" },
-                  gap: 2,
-                  flexWrap: "wrap",
-                }}
-              >
-                <Box>
-                  <Typography variant="h6" gutterBottom sx={{ mb: 0.5 }}>
-                    {t("overview.traffic")}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {t("overview.traffic_description")}
-                  </Typography>
-                </Box>
-                <Chip
-                  label={trafficStreamStatus === "open" ? t("overview.realtime") : t("overview.reconnecting")}
-                  size="small"
-                  color={trafficStreamStatus === "open" ? "info" : "warning"}
-                  variant="outlined"
-                />
-              </Box>
-              <Grid container spacing={1.5}>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <Box sx={metricPanelSx}>
-                    <Typography variant="caption" color="text.secondary">
-                      {t("overview.upload")}
-                    </Typography>
-                    <Typography variant="body1" sx={{ mt: 0.5, color: "info.main", fontWeight: 600 }}>
-                      {formatSpeed(traffic.up)}
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <Box sx={metricPanelSx}>
-                    <Typography variant="caption" color="text.secondary">
-                      {t("overview.download")}
-                    </Typography>
-                    <Typography variant="body1" sx={{ mt: 0.5, color: "success.main", fontWeight: 600 }}>
-                      {formatSpeed(traffic.down)}
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
-              <Box
-                sx={{
-                  ...metricPanelSx,
-                  flexGrow: 1,
-                  minHeight: 240,
-                  display: "flex",
-                  flexDirection: "column",
-                  overflow: "hidden",
-                }}
-              >
-                <Typography variant="caption" color="text.secondary">
-                  {t("overview.traffic_chart")}
-                </Typography>
-                <Box sx={{ mt: 1.25, flex: 1, minHeight: 180 }}>
-                  <RealtimeLineChart
-                    labels={trafficLabels}
-                    series={trafficSeries}
-                    valueFormatter={formatBytesPerSecond}
-                  />
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
+          <TrafficCard />
         </Grid>
 
-        {/* Memory Card */}
+        {/* Memory Card — owns its own WS stream so realtime updates stay local */}
         <Grid size={{ xs: 12, md: 6 }} sx={getCardGridSx("memory")}>
-          <Card sx={sharedCardSx}>
-            <CardContent sx={sharedCardContentSx}>
-              <Box
-                sx={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: { xs: "flex-start", md: "center" },
-                  gap: 2,
-                  flexWrap: "wrap",
-                }}
-              >
-                <Box>
-                  <Typography variant="h6" gutterBottom sx={{ mb: 0.5 }}>
-                    {t("overview.memory")}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {t("overview.memory_description")}
-                  </Typography>
-                </Box>
-                <Chip
-                  label={memoryStreamStatus === "open" ? t("overview.realtime") : t("overview.reconnecting")}
-                  size="small"
-                  color={memoryStreamStatus === "open" ? "secondary" : "warning"}
-                  variant="outlined"
-                />
-              </Box>
-              <Grid container spacing={1.5}>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <Box sx={metricPanelSx}>
-                    <Typography variant="caption" color="text.secondary">
-                      {t("overview.memory_in_use")}
-                    </Typography>
-                    <Typography variant="body1" sx={{ mt: 0.5, fontWeight: 600 }}>
-                      {formatBytes(memUsed)}
-                    </Typography>
-                  </Box>
-                </Grid>
-                <Grid size={{ xs: 12, sm: 6 }}>
-                  <Box sx={metricPanelSx}>
-                    <Typography variant="caption" color="text.secondary">
-                      {t("overview.memory_total")}
-                    </Typography>
-                    <Typography variant="body1" sx={{ mt: 0.5, fontWeight: 600 }}>
-                      {memTotal > 0 ? formatBytes(memTotal) : "—"}
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
-              <Box sx={metricPanelSx}>
-                <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, mb: 1 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {t("overview.memory_usage")}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    {memPct.toFixed(1)}%
-                  </Typography>
-                </Box>
-                <LinearProgress
-                  variant="determinate"
-                  value={Math.min(memPct, 100)}
-                  sx={{ height: 8, borderRadius: 0 }}
-                />
-              </Box>
-              <Box
-                sx={{
-                  ...metricPanelSx,
-                  flexGrow: 1,
-                  minHeight: 240,
-                  display: "flex",
-                  flexDirection: "column",
-                  overflow: "hidden",
-                }}
-              >
-                <Typography variant="caption" color="text.secondary">
-                  {t("overview.memory_chart")}
-                </Typography>
-                <Box sx={{ mt: 1.25, flex: 1, minHeight: 180 }}>
-                  <RealtimeLineChart
-                    labels={memoryLabels}
-                    series={memorySeries}
-                    valueFormatter={formatBytes}
-                  />
-                </Box>
-              </Box>
-            </CardContent>
-          </Card>
+          <MemoryCard />
         </Grid>
       </Grid>
-      <Snackbar
-        open={!!quickProxySnack}
-        autoHideDuration={2500}
-        onClose={() => setQuickProxySnack(null)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
-      >
-        <Alert severity={quickProxySnack?.severity ?? "info"} onClose={() => setQuickProxySnack(null)}>
-          {quickProxySnack?.message}
-        </Alert>
-      </Snackbar>
     </Box>
   );
 }
