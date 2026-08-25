@@ -15,6 +15,11 @@ resolve_target_triple() {
         amd64)
             echo "x86_64-unknown-linux-gnu"
             ;;
+        i386)
+            # 32-bit x86. Requires `rustup target add i686-unknown-linux-gnu`
+            # and a multilib linker (e.g. gcc-multilib on Debian/Ubuntu).
+            echo "i686-unknown-linux-gnu"
+            ;;
         arm64)
             # Use musl for a self-contained Raspberry Pi build that does not
             # require an external aarch64 GNU linker on the build host.

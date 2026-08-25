@@ -1,0 +1,123 @@
+name: Build Debian Packages
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing release tag to build and attach the deb packages to
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag_name:
+        description: Release tag created by the caller
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-deb-${{ inputs.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }} deb
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, i386, arm64]
+
+    env:
+      RELEASE_TAG_NAME: ${{ inputs.tag_name || github.ref_name }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag_name || github.ref }}
+          fetch-depth: 0
+
+      - name: Verify release tag checkout
+        run: |
+          if ! git show-ref --verify --quiet "refs/tags/${RELEASE_TAG_NAME}"; then
+            echo "Release tag does not exist: ${RELEASE_TAG_NAME}" >&2
+            exit 1
+          fi
+          tag_commit="$(git rev-list -n 1 "${RELEASE_TAG_NAME}")"
+          head_commit="$(git rev-parse HEAD)"
+          if [[ "$tag_commit" != "$head_commit" ]]; then
+            echo "Checked out $head_commit, but ${RELEASE_TAG_NAME} points to $tag_commit." >&2
+            exit 1
+          fi
+
+      - name: Install system build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld gcc-multilib libc6-dev-i386
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-linux-gnu,aarch64-unknown-linux-musl
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: "9"
+
+      - name: Install frontend dependencies
+        run: pnpm --dir web install --frozen-lockfile
+
+      - name: Resolve version
+        id: version
+        run: |
+          case "$RELEASE_TAG_NAME" in
+            *-v[0-9]*) version="${RELEASE_TAG_NAME##*-v}" ;;
+            v[0-9]*)   version="${RELEASE_TAG_NAME#v}" ;;
+            *)         version="0.1.0" ;;
+          esac
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Build deb package
+        run: |
+          ./packaging/build-deb.sh "${{ steps.version.outputs.version }}" "${{ matrix.arch }}"
+
+      - name: Generate checksums
+        run: |
+          cd target/deb
+          for f in *.deb; do
+            sha256sum "$f" > "${f}.sha256"
+          done
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: clash-web-${{ matrix.arch }}-deb
+          path: |
+            target/deb/*.deb
+            target/deb/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach deb to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG_NAME }}
+          files: target/deb/*.deb
+          fail_on_unmatched_files: true

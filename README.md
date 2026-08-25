@@ -121,6 +121,7 @@ pnpm --dir web build
 
 ```bash
 ./packaging/build-deb.sh 0.1.0 amd64
+./packaging/build-deb.sh 0.1.0 i386
 ./packaging/build-deb.sh 0.1.0 arm64
 ```
 
