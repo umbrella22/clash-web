@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/umbrella22/clash-web/compare/clash-web-v0.2.0...clash-web-v0.2.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* 优化构建脚本错误 ([faeaf8f](https://github.com/umbrella22/clash-web/commit/faeaf8f4ca7520da0d2acd4bb467d6ff4e031f78))
+
 ## [0.2.0](https://github.com/umbrella22/clash-web/compare/clash-web-v0.1.0...clash-web-v0.2.0) (2026-08-25)
 
 
