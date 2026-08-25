@@ -43,7 +43,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag_name || github.ref }}
           fetch-depth: 0
@@ -72,14 +72,14 @@ jobs:
           targets: i686-unknown-linux-gnu,aarch64-unknown-linux-musl
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
-          node-version: "22"
+          node-version: "24"
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
-          version: "9"
+          version: "11"
 
       - name: Install frontend dependencies
         run: pnpm --dir web install --frozen-lockfile
@@ -106,7 +106,7 @@ jobs:
           done
 
       - name: Upload deb artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: clash-web-${{ matrix.arch }}-deb
           path: |
