@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/umbrella22/clash-web/compare/clash-web-v0.2.1...clash-web-v0.3.0) (2026-08-27)
+
+
+### Features
+
+* Refactor Logs, Overview, Profiles, Proxies, Rules, and Settings pages to include auxiliary titles; update theme colors and add local Mihomo package management functionality ([0e1ee29](https://github.com/umbrella22/clash-web/commit/0e1ee29d47d3dc589888c6c0e6050c1150e21b47))
+
 ## [0.2.1](https://github.com/umbrella22/clash-web/compare/clash-web-v0.2.0...clash-web-v0.2.1) (2026-08-25)
 
 
