@@ -298,7 +298,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "clash-web-core"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64",
@@ -323,7 +323,7 @@ dependencies = [
 
 [[package]]
 name = "clash-web-service"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -350,7 +350,7 @@ dependencies = [
 
 [[package]]
 name = "clash-web-utils"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "axum",

@@ -35,13 +35,13 @@ import { useStatus } from "../hooks/useApi";
 const DRAWER_WIDTH = 258;
 
 const navItems = [
-  { key: "overview", path: "/", code: "01", icon: <DashboardIcon /> },
-  { key: "proxies", path: "/proxies", code: "02", icon: <PublicIcon /> },
-  { key: "profiles", path: "/profiles", code: "03", icon: <DescriptionIcon /> },
-  { key: "connections", path: "/connections", code: "04", icon: <LinkIcon /> },
-  { key: "logs", path: "/logs", code: "05", icon: <TerminalIcon /> },
-  { key: "rules", path: "/rules", code: "06", icon: <GavelIcon /> },
-  { key: "settings", path: "/settings", code: "07", icon: <SettingsIcon /> },
+  { key: "overview", path: "/", code: "01", label: "OVERVIEW", icon: <DashboardIcon /> },
+  { key: "proxies", path: "/proxies", code: "02", label: "PROXIES", icon: <PublicIcon /> },
+  { key: "profiles", path: "/profiles", code: "03", label: "PROFILES", icon: <DescriptionIcon /> },
+  { key: "connections", path: "/connections", code: "04", label: "CONNECTIONS", icon: <LinkIcon /> },
+  { key: "logs", path: "/logs", code: "05", label: "LOGS", icon: <TerminalIcon /> },
+  { key: "rules", path: "/rules", code: "06", label: "RULES", icon: <GavelIcon /> },
+  { key: "settings", path: "/settings", code: "07", label: "SETTINGS", icon: <SettingsIcon /> },
 ] as const;
 
 interface MainLayoutProps {
@@ -94,8 +94,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
           pointerEvents: "none",
           opacity: theme.palette.mode === "dark" ? 0.68 : 0.45,
           backgroundImage: [
-            `linear-gradient(${alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.055 : 0.06)} 1px, transparent 1px)`,
-            `linear-gradient(90deg, ${alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.055 : 0.06)} 1px, transparent 1px)`,
+            `linear-gradient(${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.06 : 0.08)} 1px, transparent 1px)`,
+            `linear-gradient(90deg, ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.06 : 0.08)} 1px, transparent 1px)`,
             `radial-gradient(circle at 100% 18%, ${alpha(theme.palette.primary.main, 0.22)}, transparent 28%)`,
           ].join(", "),
           backgroundSize: "36px 36px, 36px 36px, 100% 100%",
@@ -148,7 +148,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
             color: "primary.main",
           }}
         >
-          // NETWORK CONTROL
+          // 网络控制台 NETWORK CONTROL
         </Typography>
         <Box sx={{ display: "flex", alignItems: "baseline", gap: 1, mt: 1.15 }}>
           <Typography
@@ -194,7 +194,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
               color: "text.secondary",
             }}
           >
-            {isProxyConnected ? "LINK ESTABLISHED" : "AWAITING LINK"}
+            {isProxyConnected ? "链路已建立 LINK ESTABLISHED" : "等待链路 AWAITING LINK"}
           </Typography>
         </Box>
       </Box>
@@ -211,7 +211,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
             color: "text.secondary",
           }}
         >
-          SYSTEM MODULES
+          系统模块 SYSTEM MODULES
         </Typography>
         <List disablePadding>
           {navItems.map((item) => {
@@ -273,7 +273,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                   </ListItemIcon>
                   <ListItemText
                     primary={t(`nav.${item.key}`)}
-                    secondary={selected ? "ACTIVE CHANNEL" : undefined}
+                    secondary={`${item.label}${selected ? " · ACTIVE" : ""}`}
                     slotProps={{
                       primary: { sx: { fontSize: 13, fontWeight: 760, letterSpacing: "0.025em", lineHeight: 1.12 } },
                       secondary: {
@@ -282,7 +282,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                           fontFamily: '"JetBrains Mono", "Courier New", monospace',
                           fontSize: 9,
                           letterSpacing: "0.12em",
-                          color: "primary.main",
+                          color: selected ? "primary.main" : "text.secondary",
                         },
                       },
                     }}
@@ -316,7 +316,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
             color: "text.secondary",
           }}
         >
-          LIVE STATUS
+          实时状态 LIVE STATUS
         </Typography>
         <Typography sx={{ mt: 0.8, fontSize: 14, fontWeight: 760, color: "text.primary" }}>
           {sysStatusLabel}
@@ -438,8 +438,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
             pointerEvents: "none",
             opacity: theme.palette.mode === "dark" ? 0.54 : 0.4,
             backgroundImage: [
-              `linear-gradient(${alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.035 : 0.045)} 1px, transparent 1px)`,
-              `linear-gradient(90deg, ${alpha(theme.palette.text.primary, theme.palette.mode === "dark" ? 0.035 : 0.045)} 1px, transparent 1px)`,
+              `linear-gradient(${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.04 : 0.06)} 1px, transparent 1px)`,
+              `linear-gradient(90deg, ${alpha(theme.palette.primary.main, theme.palette.mode === "dark" ? 0.04 : 0.06)} 1px, transparent 1px)`,
             ].join(", "),
             backgroundSize: { xs: "32px 32px", md: "56px 56px" },
             maskImage: "linear-gradient(to bottom, black 0%, transparent 62%)",
@@ -483,7 +483,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
                   whiteSpace: "nowrap",
                 }}
               >
-                {t(`nav.${activeItem.key}`).toUpperCase()} · CONTROL SURFACE
+                {t(`nav.${activeItem.key}`)} · {activeItem.label}
               </Typography>
             </Box>
             <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flex: "0 0 auto" }}>

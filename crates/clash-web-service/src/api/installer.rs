@@ -4,7 +4,7 @@ use axum::{
     response::sse::{Event, Sse},
 };
 use clash_web_core::installer::{
-    DownloadTaskStart, DownloadTaskType, InstallTaskError, MihomoInstaller,
+    DownloadTaskStart, DownloadTaskType, InstallTaskError, LocalMihomoPackages, MihomoInstaller,
 };
 use clash_web_utils::AppError;
 use futures_util::stream::Stream;
@@ -38,6 +38,33 @@ pub async fn install_mihomo(
         .installer
         .clone()
         .start_download(DownloadTaskType::Install)
+        .await
+        .map_err(map_install_error)?;
+    Ok(Json(started))
+}
+
+pub async fn list_local_packages(
+    State(state): State<AppState>,
+) -> Result<Json<LocalMihomoPackages>, AppError> {
+    let packages = state.installer.list_local_packages().map_err(|err| {
+        AppError::Internal(format!("Failed to list local mihomo packages: {err}"))
+    })?;
+    Ok(Json(packages))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct LocalPackageInstallRequest {
+    pub name: String,
+}
+
+pub async fn install_local_package(
+    State(state): State<AppState>,
+    Json(request): Json<LocalPackageInstallRequest>,
+) -> Result<Json<DownloadTaskStart>, AppError> {
+    let started = state
+        .installer
+        .clone()
+        .start_local_import(request.name)
         .await
         .map_err(map_install_error)?;
     Ok(Json(started))
@@ -129,6 +156,7 @@ fn map_install_error(err: InstallTaskError) -> AppError {
                 .map(|task_type| format!(" ({task_type})"))
                 .unwrap_or_default()
         )),
+        InstallTaskError::InvalidPackage(message) => AppError::BadRequest(message),
         InstallTaskError::Failed(err) => {
             AppError::Internal(format!("Failed to process mihomo download: {}", err))
         }

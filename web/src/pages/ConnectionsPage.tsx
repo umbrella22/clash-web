@@ -139,6 +139,7 @@ export default function ConnectionsPage() {
       <PageTitle
         title={t("connections.title")}
         count={filtered.length}
+        aux="ACTIVE SOCKET STREAM"
         actions={
           <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
             <Tooltip title={t("common.refresh")}>

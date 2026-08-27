@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -z "${HOME:-}" ]]; then
+    printf '%s\n' "HOME must be set to run Clash Web from an AppImage." >&2
+    exit 1
+fi
+
+APPDIR="$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")" && pwd)"
+APP_NAME="clash-web"
+CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
+DATA_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}"
+CONFIG_DIR="${CONFIG_HOME}/${APP_NAME}"
+DATA_DIR="${DATA_HOME}/${APP_NAME}"
+SERVICE_CONFIG="${CONFIG_DIR}/service.yaml"
+UI_DIR="${APPDIR}/usr/share/clash-web/ui"
+SERVICE_BIN="${APPDIR}/usr/bin/clash-web-service"
+
+if [[ ! -x "$SERVICE_BIN" ]]; then
+    printf 'Clash Web service binary is missing: %s\n' "$SERVICE_BIN" >&2
+    exit 1
+fi
+if [[ ! -d "$UI_DIR" ]]; then
+    printf 'Clash Web UI directory is missing: %s\n' "$UI_DIR" >&2
+    exit 1
+fi
+
+yaml_quote() {
+    local value="$1"
+    if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+        printf '%s\n' "XDG paths must not contain newline characters." >&2
+        exit 1
+    fi
+    value="${value//\'/\'\'}"
+    printf "'%s'" "$value"
+}
+
+mkdir -p "$CONFIG_DIR" "$DATA_DIR"
+
+if [[ ! -f "$SERVICE_CONFIG" ]]; then
+    temporary_config="${SERVICE_CONFIG}.tmp.$$"
+    trap 'rm -f -- "$temporary_config"' EXIT
+    data_dir_yaml="$(yaml_quote "$DATA_DIR")"
+    cat > "$temporary_config" <<EOF
+server:
+  host: "127.0.0.1"
+  port: 9097
+
+mihomo:
+  api_url: "http://127.0.0.1:9090"
+  secret: ""
+  config_dir: ${data_dir_yaml}
+
+auth:
+  token: ""
+EOF
+    chmod 600 "$temporary_config"
+    mv -- "$temporary_config" "$SERVICE_CONFIG"
+    trap - EXIT
+fi
+
+export CLASH_WEB_UI_DIR="$UI_DIR"
+exec "$SERVICE_BIN" --config "$SERVICE_CONFIG" "$@"

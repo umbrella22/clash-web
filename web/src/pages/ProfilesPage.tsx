@@ -193,6 +193,7 @@ export default function ProfilesPage() {
     <Box>
       <PageTitle
         title={t("profiles.title")}
+        aux="SUBSCRIPTION PROFILES"
         actions={
           <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
           <Button

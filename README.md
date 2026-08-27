@@ -17,7 +17,7 @@ Clash Web 是一个基于浏览器的 mihomo（Clash Meta）管理面板，目�
 - 后端：Rust、Axum、Tokio、Reqwest、Tower HTTP
 - 前端：React、TypeScript、MUI、Vite、TanStack Query、Axios、Chart.js
 - 运行时：mihomo 作为代理核心，clash-web-service 作为 Web 管理服务
-- 部署：支持 systemd 服务和 Debian/Ubuntu deb 包打包
+- 部署：支持 systemd 服务、Debian/Ubuntu deb 包和 Linux x86_64 AppImage
 
 ## 项目结构
 
@@ -152,6 +152,48 @@ sudo systemctl restart clash-web
 ```
 
 首次通过局域网访问前，请确保 `/etc/clash-web/service.yaml` 中设置了 `auth.token`。服务绑定非本地地址且 token 为空时会拒绝启动。
+
+## 打包 AppImage
+
+项目也提供面向 Linux 桌面环境的 x86_64 AppImage 打包脚本。它使用用户目录保存服务配置和 mihomo 数据，不会安装 systemd 服务：
+
+```bash
+# 需要 Rust、Node.js、pnpm、clang、lld、rsvg-convert 和 appimagetool
+APPIMAGETOOL=/path/to/appimagetool \
+  ./packaging/build-appimage.sh 0.1.0
+```
+
+生成的文件位于：
+
+```text
+target/appimage/clash-web_<version>_x86_64.AppImage
+```
+
+运行 AppImage 后，使用浏览器访问 `http://127.0.0.1:9097`。服务配置默认保存在 `${XDG_CONFIG_HOME:-$HOME/.config}/clash-web/service.yaml`，mihomo、profiles 和备份数据默认保存在 `${XDG_DATA_HOME:-$HOME/.local/share}/clash-web`。如果系统没有 FUSE 2，可以使用：
+
+```bash
+./target/appimage/clash-web_0.1.0_x86_64.AppImage --appimage-extract-and-run
+```
+
+AppImage 适合便携使用，不会创建或启用系统级 systemd unit。当前 Web UI 中 mihomo 的启动、停止和重启操作仍依赖 `systemctl`，TUN 模式仍需要系统授予相应网络权限；需要完整系统服务能力时请使用 deb 包。
+
+## 离线导入 mihomo 核心
+
+当服务器无法访问 GitHub 时，可以在另一台设备下载 mihomo 官方 `mihomo-<os>-<arch>-vX.Y.Z.gz` 压缩包，放到服务约定的导入目录，然后在 Web UI 的 Settings 页面点击“本地安装包”中的安装按钮：
+
+```text
+deb 安装:    /etc/clash-web/incoming/
+AppImage:    ${XDG_DATA_HOME:-$HOME/.local/share}/clash-web/incoming/
+开发运行:     service.yaml 中 mihomo.config_dir 指向目录下的 incoming/
+```
+
+要求：
+
+- 文件名必须是 `mihomo-*.gz` 单文件 gzip 压缩包（不支持 `.tar.gz`）；
+- 架构需要与本机一致（安装前会校验 ELF 架构并执行 `mihomo -v`）；
+- 压缩包不能超过 100 MB。
+
+校验通过后核心会原子替换到 `<config_dir>/bin/mihomo`；任何失败都会保留现有核心，源压缩包不会被自动删除。deb 包中该目录由 `clash-web` 用户管理，放入文件后如遇权限问题可执行 `sudo chown clash-web:clash-web /etc/clash-web/incoming/<文件名>`。
 
 ## Web UI 使用流程
 

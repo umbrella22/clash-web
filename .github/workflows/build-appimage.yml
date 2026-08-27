@@ -1,0 +1,142 @@
+name: Build AppImage
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: Existing release tag to build and attach the AppImage to
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      tag_name:
+        description: Release tag created by the caller
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-appimage-${{ inputs.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build x86_64 AppImage
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      RELEASE_TAG_NAME: ${{ inputs.tag_name || github.ref_name }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag_name || github.ref }}
+          fetch-depth: 0
+
+      - name: Verify release tag checkout
+        run: |
+          if ! git show-ref --verify --quiet "refs/tags/${RELEASE_TAG_NAME}"; then
+            echo "Release tag does not exist: ${RELEASE_TAG_NAME}" >&2
+            exit 1
+          fi
+          tag_commit="$(git rev-list -n 1 "${RELEASE_TAG_NAME}")"
+          head_commit="$(git rev-parse HEAD)"
+          if [[ "$tag_commit" != "$head_commit" ]]; then
+            echo "Checked out $head_commit, but ${RELEASE_TAG_NAME} points to $tag_commit." >&2
+            exit 1
+          fi
+
+      - name: Install system build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld librsvg2-bin
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "11"
+
+      - name: Install frontend dependencies
+        run: pnpm --dir web install --frozen-lockfile
+
+      - name: Resolve version
+        id: version
+        run: |
+          case "$RELEASE_TAG_NAME" in
+            *-v[0-9]*) version="${RELEASE_TAG_NAME##*-v}" ;;
+            v[0-9]*)   version="${RELEASE_TAG_NAME#v}" ;;
+            *)         version="0.1.0" ;;
+          esac
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Download appimagetool
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          appimagetool_path="${RUNNER_TEMP}/appimagetool"
+          curl --fail --location --silent --show-error \
+            --output "$appimagetool_path" \
+            "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
+          chmod 755 "$appimagetool_path"
+
+          digest="$(gh api repos/AppImage/appimagetool/releases/tags/continuous \
+            --jq '.assets[] | select(.name == "appimagetool-x86_64.AppImage") | .digest')"
+          if [[ "$digest" != sha256:* ]]; then
+            echo "The appimagetool release did not provide a SHA-256 digest." >&2
+            exit 1
+          fi
+          printf '%s  %s\n' "${digest#sha256:}" "$appimagetool_path" | sha256sum --check --status
+          echo "APPIMAGETOOL=$appimagetool_path" >> "$GITHUB_ENV"
+
+      - name: Build AppImage
+        run: |
+          ./packaging/build-appimage.sh \
+            "${{ steps.version.outputs.version }}" \
+            x86_64 \
+            x86_64-unknown-linux-musl \
+            --appimage-extract-and-run
+
+      - name: Generate checksum
+        run: |
+          cd target/appimage
+          sha256sum "clash-web_${{ steps.version.outputs.version }}_x86_64.AppImage" \
+            > "clash-web_${{ steps.version.outputs.version }}_x86_64.AppImage.sha256"
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: clash-web-x86_64-appimage
+          path: |
+            target/appimage/*.AppImage
+            target/appimage/*.AppImage.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach AppImage to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG_NAME }}
+          files: |
+            target/appimage/*.AppImage
+            target/appimage/*.AppImage.sha256
+          fail_on_unmatched_files: true

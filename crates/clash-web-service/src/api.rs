@@ -23,6 +23,14 @@ pub fn create_router(state: AppState) -> Router {
         .route("/auth/status", get(auth::get_auth_status))
         .route("/auth/login", post(auth::login))
         .route("/mihomo/status", get(installer::get_install_status))
+        .route(
+            "/mihomo/local-packages",
+            get(installer::list_local_packages),
+        )
+        .route(
+            "/mihomo/local-packages/install",
+            post(installer::install_local_package),
+        )
         .route("/mihomo/install", post(installer::install_mihomo))
         .route("/mihomo/check", get(installer::check_version))
         .route("/mihomo/upgrade", post(installer::upgrade_mihomo))
@@ -105,11 +113,7 @@ pub fn create_router(state: AppState) -> Router {
         ])
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
 
-    let static_dir = if std::path::Path::new("web/dist").exists() {
-        "web/dist".to_string()
-    } else {
-        "/usr/share/clash-web/ui".to_string()
-    };
+    let static_dir = resolve_static_dir();
 
     Router::new()
         .nest("/api/v1", api_routes)
@@ -123,6 +127,25 @@ pub fn create_router(state: AppState) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(cors)
         .with_state(state)
+}
+
+fn resolve_static_dir_from(ui_dir: Option<&str>, dev_dir_exists: bool) -> String {
+    if let Some(ui_dir) = ui_dir.filter(|dir| !dir.is_empty()) {
+        return ui_dir.to_string();
+    }
+
+    if dev_dir_exists {
+        "web/dist".to_string()
+    } else {
+        "/usr/share/clash-web/ui".to_string()
+    }
+}
+
+fn resolve_static_dir() -> String {
+    resolve_static_dir_from(
+        std::env::var("CLASH_WEB_UI_DIR").ok().as_deref(),
+        std::path::Path::new("web/dist").exists(),
+    )
 }
 
 fn is_allowed_origin(origin: &HeaderValue) -> bool {
@@ -142,6 +165,28 @@ fn is_allowed_origin(origin: &HeaderValue) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explicit_ui_directory_takes_precedence() {
+        assert_eq!(
+            resolve_static_dir_from(Some(" /tmp/clash-web-ui "), true),
+            " /tmp/clash-web-ui "
+        );
+    }
+
+    #[test]
+    fn blank_ui_directory_falls_back_to_development_directory() {
+        assert_eq!(resolve_static_dir_from(Some(""), true), "web/dist");
+    }
+
+    #[test]
+    fn packaged_directory_is_used_when_development_directory_is_missing() {
+        assert_eq!(
+            resolve_static_dir_from(None, false),
+            "/usr/share/clash-web/ui"
+        );
+    }
+
     use axum::{
         Json,
         extract::{Path as AxumPath, State},

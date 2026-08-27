@@ -286,7 +286,7 @@ export default function OverviewPage() {
   if (statusLoadFailed && !status) {
     return (
       <Box>
-        <PageTitle title={t("overview.title")} eyebrow="NETWORK OVERVIEW" />
+        <PageTitle title={t("overview.title")} eyebrow="NETWORK OVERVIEW" aux="REAL-TIME TELEMETRY FEED" />
         <Alert
           severity="error"
           action={
@@ -303,7 +303,7 @@ export default function OverviewPage() {
 
   return (
     <Box>
-      <PageTitle title={t("overview.title")} eyebrow="NETWORK OVERVIEW" />
+      <PageTitle title={t("overview.title")} eyebrow="NETWORK OVERVIEW" aux="REAL-TIME TELEMETRY FEED" />
 
       {!mihomoInstalled && (
         <Alert

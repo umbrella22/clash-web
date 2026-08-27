@@ -71,13 +71,13 @@ export default function LogsPage() {
     setUnseenCount(0);
   }, [filter, search]);
   const isDark = theme.palette.mode === "dark";
-  const accentColor = isDark ? "#7ee787" : theme.palette.primary.main;
+  const accentColor = theme.palette.primary.main;
   const mutedColor = theme.palette.text.secondary;
   const panelTextColor = theme.palette.text.primary;
   const logColors: Record<string, string> = {
     error: theme.palette.error.main,
     warning: theme.palette.warning.main,
-    info: isDark ? "#7ee787" : theme.palette.success.main,
+    info: theme.palette.success.main,
     debug: mutedColor,
   };
 
@@ -216,6 +216,7 @@ export default function LogsPage() {
       <PageTitle
         title={t("logs.title")}
         count={filtered.length}
+        aux="EVENT LOG STREAM"
         actions={
           <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
             {(["all", "info", "warning", "error", "debug"] as const).map((level) => (

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Clash Web
+Comment=Web-based mihomo proxy management interface
+Exec=AppRun
+Icon=clash-web
+Categories=Network;
+Terminal=true

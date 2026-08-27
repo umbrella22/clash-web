@@ -32,6 +32,8 @@ import {
   patchRuntimeConfig,
   getRuntimeConfig,
   checkMihomoVersion,
+  getLocalMihomoPackages,
+  installLocalMihomoPackage,
   upgradeMihomo,
   installMihomo,
   getSystemProxy,
@@ -268,7 +270,7 @@ export default function SettingsPage() {
 
   return (
     <Box>
-      <PageTitle title={t("settings.title")} eyebrow="SYSTEM CONFIGURATION" />
+      <PageTitle title={t("settings.title")} eyebrow="SYSTEM CONFIGURATION" aux="SERVICE & RUNTIME OPTIONS" />
       <Grid container spacing={3}>
         {/* Mihomo Version */}
         <Grid size={{ xs: 12 }}>
@@ -896,13 +898,32 @@ function MihomoVersionCard() {
     await runDownloadAction(() => upgradeMihomo(), t("settings.download_request_failed"));
   };
 
+  const { data: localPackages, refetch: refetchLocalPackages } = useQuery({
+    queryKey: ["mihomoLocalPackages"],
+    queryFn: () => getLocalMihomoPackages().then((response) => response.data),
+  });
+
+  const handleLocalInstall = async (name: string) => {
+    const succeeded = await runDownloadAction(
+      () => installLocalMihomoPackage(name),
+      t("settings.download_request_failed")
+    );
+    if (succeeded) {
+      void refetchLocalPackages();
+    }
+  };
+
   const progressStatusKey = progress
     ? `settings.download_status_${describeDownloadStatus(progress.status)}`
     : "settings.download_status_idle";
   const activeProgress = isDownloadTaskActive(progress) ? progress : null;
   const progressStatusLabel = t(progressStatusKey);
   const taskTypeLabel =
-    activeProgress?.task_type === "upgrade" ? t("settings.upgrade") : t("settings.install");
+    activeProgress?.task_type === "upgrade"
+      ? t("settings.upgrade")
+      : activeProgress?.task_type === "import"
+        ? t("settings.local_import")
+        : t("settings.install");
   const lastUpdatedLabel =
     activeProgress?.updated_at != null
       ? new Date(activeProgress.updated_at * 1000).toLocaleTimeString()
@@ -1114,6 +1135,56 @@ function MihomoVersionCard() {
             </Button>
           )}
         </Box>
+
+        <Divider sx={{ my: 2 }} />
+
+        <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+          {t("settings.local_packages")}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          {t("settings.local_packages_directory")}: <code>{localPackages?.directory ?? "—"}</code>
+        </Typography>
+        {localPackages && localPackages.packages.length === 0 && (
+          <Alert severity="info">{t("settings.local_packages_empty")}</Alert>
+        )}
+        {localPackages && localPackages.packages.length > 0 && (
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            {localPackages.packages.map((item) => (
+              <Box
+                key={item.name}
+                sx={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 1,
+                  p: 1,
+                  border: 1,
+                  borderColor: "divider",
+                  bgcolor: "background.default",
+                }}
+              >
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="body2" noWrap>
+                    {item.name}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {formatBytes(item.size)} · {formatDate(item.modified_at)}
+                  </Typography>
+                </Box>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    void handleLocalInstall(item.name);
+                  }}
+                  disabled={actionPending}
+                >
+                  {t("settings.local_import")}
+                </Button>
+              </Box>
+            ))}
+          </Box>
+        )}
       </CardContent>
     </Card>
   );

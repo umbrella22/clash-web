@@ -354,7 +354,7 @@ export default function ProxiesPage() {
 
   return (
     <Box>
-      <PageTitle title={t("proxies.title")} />
+      <PageTitle title={t("proxies.title")} aux="PROXY GROUP ROUTING" />
 
       <Box
         sx={(theme) => ({

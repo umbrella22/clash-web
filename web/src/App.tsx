@@ -6,7 +6,7 @@ import {
   ThemeProvider,
   Typography,
 } from "@mui/material";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 
@@ -28,6 +28,7 @@ import {
   setStoredToken,
 } from "./services/api";
 import { darkTheme, lightTheme } from "./theme";
+import BootScreen, { BOOT_DISMISSED_EVENT } from "./components/BootScreen";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -77,6 +78,12 @@ const AuthContext = createContext<AuthContextType>({
 });
 
 export const useAuthContext = () => useContext(AuthContext);
+
+// True while the boot overlay is up. Pages mounted underneath (login) use it
+// to hold their entrance until the boot wipe hands off to them; on later
+// in-app remounts (logout) no boot is pending and they enter at once.
+const BootContext = createContext(false);
+export const useBootPending = () => useContext(BootContext);
 
 function MainRoutes() {
   return (
@@ -214,7 +221,18 @@ function AppRouter() {
 
 export default function App() {
   const [mode, setMode] = useState<"dark" | "light">(getThemeMode);
+  // The boot sequence replays on every page load (refresh included) and lets
+  // its wipe transition reveal whatever the router settled on underneath —
+  // the login terminal or the main console.
+  const [bootPending, setBootPending] = useState(true);
   const theme = mode === "dark" ? darkTheme : lightTheme;
+
+  const finishBoot = useCallback(() => {
+    setBootPending(false);
+    // Tell the login page (already mounted underneath) to start its entrance
+    // choreography now, so boot → login reads as one continuous sequence.
+    window.dispatchEvent(new Event(BOOT_DISMISSED_EVENT));
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.clashTheme = mode;
@@ -274,17 +292,20 @@ export default function App() {
   };
 
   return (
-    <ThemeContext.Provider value={{ mode, toggleTheme, setThemeMode }}>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <QueryClientProvider client={queryClient}>
-          <ToastProvider>
-            <HashRouter>
-              <AppRouter />
-            </HashRouter>
-          </ToastProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    </ThemeContext.Provider>
+    <BootContext.Provider value={bootPending}>
+      <ThemeContext.Provider value={{ mode, toggleTheme, setThemeMode }}>
+        <ThemeProvider theme={theme}>
+          <CssBaseline />
+          {bootPending && <BootScreen onDone={finishBoot} />}
+          <QueryClientProvider client={queryClient}>
+            <ToastProvider>
+              <HashRouter>
+                <AppRouter />
+              </HashRouter>
+            </ToastProvider>
+          </QueryClientProvider>
+        </ThemeProvider>
+      </ThemeContext.Provider>
+    </BootContext.Provider>
   );
 }

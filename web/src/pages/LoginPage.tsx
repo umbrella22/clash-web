@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import { useTranslation } from "react-i18next";
 import {
-  Alert,
   Box,
   Button,
   CircularProgress,
@@ -14,8 +13,12 @@ import {
 import { alpha } from "@mui/material/styles";
 import { useNavigate } from "react-router-dom";
 
-import { useAuthContext } from "../App";
+import { useAuthContext, useBootPending } from "../App";
+import { BOOT_DISMISSED_EVENT } from "../components/BootScreen";
 import { clearStoredToken, getStoredToken } from "../services/api";
+
+const MONO_FONT =
+  '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace';
 
 const markerSnap = keyframes`
   0% {
@@ -114,6 +117,35 @@ const pulseCore = keyframes`
   }
 `;
 
+const glitchSkew = keyframes`
+  0% {
+    transform: translate(0, 0);
+  }
+
+  20% {
+    transform: translate(-4px, 4px);
+  }
+
+  40% {
+    transform: translate(-4px, -4px);
+  }
+
+  60% {
+    transform: translate(4px, 4px);
+  }
+
+  80% {
+    transform: translate(4px, -4px);
+  }
+
+  100% {
+    transform: translate(0, 0);
+  }
+`;
+
+const HERO_WORD = "CLASH";
+const SCRAMBLE_CHARS = "!@#$%^&*()_+-=[]{}|;:,.<>?X0";
+
 export default function LoginPage() {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -123,6 +155,9 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [active, setActive] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [glitching, setGlitching] = useState(false);
+  const [heroText, setHeroText] = useState(HERO_WORD);
   const [isExiting, setIsExiting] = useState(false);
   const [isLoadingActive, setIsLoadingActive] = useState(false);
   const [loadingPercent, setLoadingPercent] = useState(0);
@@ -131,6 +166,8 @@ export default function LoginPage() {
   const successTimerRef = useRef<number | null>(null);
   const loadingIntervalRef = useRef<number | null>(null);
   const navigateTimerRef = useRef<number | null>(null);
+  const glitchTimerRef = useRef<number | null>(null);
+  const scrambleIntervalRef = useRef<number | null>(null);
   const tokenInputRef = useRef<HTMLInputElement | null>(null);
 
   // Focus only once the input has finished its reveal animation (2.08s delay
@@ -141,10 +178,40 @@ export default function LoginPage() {
     return () => window.clearTimeout(timer);
   }, [active]);
 
+  // Coordinate with the boot layer (login.vue's BOOT_DISMISSED_EVENT pattern):
+  // the boot sequence replays on every page load, so a freshly mounted login
+  // page waits for the wipe handoff; later in-app remounts (logout) enter at
+  // once because no boot is pending anymore.
+  const bootPending = useBootPending();
+
   useEffect(() => {
-    const timer = window.setTimeout(() => setActive(true), 160);
-    return () => window.clearTimeout(timer);
-  }, []);
+    if (!bootPending) {
+      const timer = window.setTimeout(() => setActive(true), 160);
+      return () => window.clearTimeout(timer);
+    }
+
+    let armTimer = 0;
+    let fallbackTimer = 0;
+    const armEntrance = () => {
+      if (fallbackTimer !== 0) {
+        window.clearTimeout(fallbackTimer);
+        fallbackTimer = 0;
+      }
+      if (armTimer === 0) {
+        armTimer = window.setTimeout(() => setActive(true), 80);
+      }
+    };
+
+    window.addEventListener(BOOT_DISMISSED_EVENT, armEntrance, { once: true });
+    // Safety net: never trap the user if the boot layer fails to report.
+    fallbackTimer = window.setTimeout(armEntrance, 8000);
+
+    return () => {
+      window.removeEventListener(BOOT_DISMISSED_EVENT, armEntrance);
+      window.clearTimeout(armTimer);
+      window.clearTimeout(fallbackTimer);
+    };
+  }, [bootPending]);
 
   useEffect(() => {
     return () => {
@@ -159,28 +226,83 @@ export default function LoginPage() {
       if (navigateTimerRef.current !== null) {
         window.clearTimeout(navigateTimerRef.current);
       }
+
+      if (glitchTimerRef.current !== null) {
+        window.clearTimeout(glitchTimerRef.current);
+      }
+
+      if (scrambleIntervalRef.current !== null) {
+        window.clearInterval(scrambleIntervalRef.current);
+      }
     };
   }, []);
 
   const statusText = useMemo(() => {
-    if (isLoadingActive) return isComplete ? "COMPLETE" : "INITIALIZING...";
-    if (submitting) return "VERIFYING ACCESS KEY...";
-    if (error) return error.toUpperCase();
-    return "WAITING FOR AUTHENTICATION";
-  }, [error, isComplete, isLoadingActive, submitting]);
+    // Kept terse: this line is single-line (nowrap) above the subtitle.
+    if (glitching) return "FATAL ERROR";
+    if (isLoadingActive) return isComplete ? "COMPLETE" : "INITIALIZING";
+    if (submitting) return "VERIFYING KEY";
+    if (error) return error;
+    return "WAITING";
+  }, [error, glitching, isComplete, isLoadingActive, submitting]);
 
-  const statusColor = isComplete
-    ? "success.main"
-    : error
-      ? "error.main"
-      : submitting || isLoadingActive
-        ? "success.main"
-        : "text.secondary";
+  const statusColor = glitching
+    ? "error.main"
+    : isComplete
+      ? "success.main"
+      : error
+        ? "error.main"
+        : submitting || isLoadingActive
+          ? "primary.main"
+          : "text.secondary";
+
   const isDark = theme.palette.mode === "dark";
-  const heroPrimary = isDark ? "#f2f1ec" : "#171719";
-  const heroMuted = isDark ? "#9b9a96" : "#66645f";
-  const heroLine = isDark ? alpha(theme.palette.primary.main, 0.82) : alpha(theme.palette.primary.main, 0.72);
+  const heroPrimary = theme.palette.text.primary;
+  const heroMuted = theme.palette.text.secondary;
+  const heroLine = alpha(theme.palette.primary.main, isDark ? 0.7 : 0.6);
   const heroAccent = theme.palette.primary.main;
+  const floating = focused || token.length > 0;
+
+  const scrambleHero = () => {
+    if (scrambleIntervalRef.current !== null) {
+      window.clearInterval(scrambleIntervalRef.current);
+    }
+
+    let iterations = 0;
+    scrambleIntervalRef.current = window.setInterval(() => {
+      setHeroText(
+        HERO_WORD.split("")
+          .map((char, index) =>
+            index < iterations ? char : SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)],
+          )
+          .join(""),
+      );
+
+      if (iterations >= HERO_WORD.length) {
+        if (scrambleIntervalRef.current !== null) {
+          window.clearInterval(scrambleIntervalRef.current);
+          scrambleIntervalRef.current = null;
+        }
+        setHeroText(HERO_WORD);
+      }
+      iterations += 0.5;
+    }, 45);
+  };
+
+  // Failed handshake: the terminal glitches and scrambles like the reference
+  // login.vue, then recovers to an editable state instead of force-reloading.
+  const triggerGlitch = () => {
+    setGlitching(true);
+    scrambleHero();
+
+    if (glitchTimerRef.current !== null) {
+      window.clearTimeout(glitchTimerRef.current);
+    }
+    glitchTimerRef.current = window.setTimeout(() => {
+      glitchTimerRef.current = null;
+      setGlitching(false);
+    }, 1100);
+  };
 
   const startLoadingCounter = () => {
     if (loadingIntervalRef.current !== null) {
@@ -230,6 +352,7 @@ export default function LoginPage() {
 
     if (!token.trim()) {
       setError(t("auth.token_required"));
+      triggerGlitch();
       return;
     }
 
@@ -262,6 +385,7 @@ export default function LoginPage() {
       } else {
         setError(t("auth.login_failed"));
       }
+      triggerGlitch();
     } finally {
       setSubmitting(false);
     }
@@ -270,9 +394,8 @@ export default function LoginPage() {
   return (
     <Box
       sx={{
-        "--bg-start": isDark ? "#161619" : "#f5f2ec",
-        "--bg-end": isDark ? "#070708" : "#dfdcd5",
-        "--primary": heroPrimary,
+        "--bg-start": isDark ? "#04101a" : "#f2f7fa",
+        "--bg-end": isDark ? "#02060a" : "#e2eaef",
         minHeight: "100vh",
         display: "flex",
         flexDirection: "column",
@@ -282,11 +405,11 @@ export default function LoginPage() {
         py: 4,
         backgroundImage: [
           isDark
-            ? "radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.12) 0, transparent 30%)"
-            : "radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.72) 0, transparent 30%)",
+            ? "radial-gradient(circle at 18% 18%, rgba(95, 208, 224, 0.14) 0, transparent 30%)"
+            : "radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.75) 0, transparent 30%)",
           isDark
-            ? "radial-gradient(circle at 78% 72%, rgba(255, 77, 97, 0.16) 0, transparent 28%)"
-            : "radial-gradient(circle at 78% 72%, rgba(207, 49, 72, 0.1) 0, transparent 28%)",
+            ? "radial-gradient(circle at 78% 72%, rgba(95, 208, 224, 0.1) 0, transparent 28%)"
+            : "radial-gradient(circle at 78% 72%, rgba(30, 126, 147, 0.1) 0, transparent 28%)",
           "linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%)",
         ].join(", "),
         overflow: "hidden",
@@ -301,20 +424,34 @@ export default function LoginPage() {
           aspectRatio: "16 / 9",
           maxHeight: "calc(100vh - 32px)",
           background: isDark
-            ? "linear-gradient(145deg, rgba(22, 22, 25, 0.88), rgba(12, 12, 14, 0.72))"
-            : "linear-gradient(145deg, rgba(255, 254, 250, 0.9), rgba(245, 242, 235, 0.72))",
-          borderRadius: "8px",
-          border: `1px solid ${alpha(theme.palette.primary.main, isDark ? 0.24 : 0.18)}`,
+            ? "linear-gradient(145deg, rgba(10, 22, 30, 0.9), rgba(5, 12, 18, 0.78))"
+            : "linear-gradient(145deg, rgba(250, 253, 255, 0.92), rgba(240, 246, 249, 0.78))",
+          border: `1px solid ${alpha(theme.palette.primary.main, isDark ? 0.24 : 0.3)}`,
           backdropFilter: "blur(24px) saturate(150%)",
           WebkitBackdropFilter: "blur(24px) saturate(150%)",
           boxShadow: isDark
-            ? `0 32px 70px rgba(0, 0, 0, 0.42), 0 0 36px ${alpha(theme.palette.primary.main, 0.12)}`
-            : "0 30px 60px rgba(31, 28, 24, 0.16)",
+            ? `0 32px 70px rgba(0, 0, 0, 0.5), 0 0 36px ${alpha(theme.palette.primary.main, 0.1)}`
+            : "0 30px 60px rgba(23, 46, 58, 0.16)",
           overflow: "hidden",
           opacity: active ? 1 : 0,
           transform: "translate3d(0, 0, 0)",
           transitionProperty: "opacity",
           transitionDuration: "500ms",
+          ...(glitching
+            ? {
+                animation: `${glitchSkew} 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94) 3 both`,
+                borderColor: alpha(theme.palette.error.main, 0.66),
+                boxShadow: `0 32px 70px rgba(0, 0, 0, 0.5), 0 0 30px ${alpha(theme.palette.error.main, 0.22)}`,
+              }
+            : null),
+          "@media (prefers-reduced-motion: reduce)": {
+            "& *, & *::before, & *::after": {
+              animationDuration: "0.01ms !important",
+              animationDelay: "0s !important",
+              animationIterationCount: "1 !important",
+              transitionDuration: "0.01ms !important",
+            },
+          },
         }}
       >
         <Box
@@ -353,7 +490,8 @@ export default function LoginPage() {
                 width="18"
                 height="18"
                 sx={{
-                  fill: "var(--primary)",
+                  fill: glitching ? theme.palette.error.main : "var(--primary)",
+                  "--primary": heroPrimary,
                   transformOrigin: "center",
                   opacity: 0,
                   "--sx": marker.sx,
@@ -397,15 +535,15 @@ export default function LoginPage() {
               sx={{
                 opacity: 0,
                 transformOrigin: "center",
-                fontFamily: '"JetBrains Mono", "Courier New", monospace',
+                fontFamily: MONO_FONT,
                 fontSize: 72,
                 fontWeight: 900,
-                fill: heroPrimary,
+                fill: glitching ? theme.palette.error.main : heroPrimary,
                 animation: active ? `${heroReveal} 0.8s ease-out forwards` : "none",
                 animationDelay: "1s",
               }}
             >
-              CLASH
+              {heroText}
             </Box>
             <Box
               component="text"
@@ -415,7 +553,7 @@ export default function LoginPage() {
               sx={{
                 opacity: 0,
                 transform: "translateY(10px)",
-                fontFamily: '"JetBrains Mono", "Courier New", monospace',
+                fontFamily: MONO_FONT,
                 fontSize: 12,
                 letterSpacing: 3,
                 fill: heroMuted,
@@ -424,7 +562,7 @@ export default function LoginPage() {
                 animationDelay: "1.2s",
               }}
             >
-              ORBITAL RELAY CONTROL
+              ORBITAL RELAY
             </Box>
             <Box
               component="line"
@@ -449,10 +587,10 @@ export default function LoginPage() {
               sx={{
                 opacity: 0,
                 transform: "translateY(10px)",
-                fontFamily: '"JetBrains Mono", "Courier New", monospace',
+                fontFamily: MONO_FONT,
                 fontSize: 22,
                 fontWeight: "bold",
-                fill: heroPrimary,
+                fill: heroAccent,
                 letterSpacing: 1,
                 animation: active ? `${fadeUp} 0.6s ease-out forwards` : "none",
                 animationDelay: "1.4s",
@@ -505,24 +643,6 @@ export default function LoginPage() {
             }}
           >
             <Box
-              component="text"
-              x="450"
-              y="150"
-              sx={{
-                opacity: 0,
-                transform: "translateY(10px)",
-                fontFamily: '"JetBrains Mono", "Courier New", monospace',
-                fontSize: 11,
-                fontWeight: "bold",
-                letterSpacing: 1,
-                fill: heroLine,
-                animation: active ? `${fadeUp} 0.6s ease-out forwards` : "none",
-                animationDelay: "1.6s",
-              }}
-            >
-              ACCESS KEY
-            </Box>
-            <Box
               component="rect"
               x="450"
               y="165"
@@ -530,35 +650,39 @@ export default function LoginPage() {
               height="40"
               sx={{
                 fill: "none",
-                stroke: error ? theme.palette.error.main : heroLine,
+                stroke: error ? theme.palette.error.main : focused ? heroAccent : heroLine,
                 strokeWidth: 2,
                 strokeDasharray: 600,
                 strokeDashoffset: 600,
                 opacity: 0,
                 transitionProperty: "stroke",
                 transitionDuration: "300ms",
+                // drawRect only animates the dash; pair it with a fade or the
+                // field frame stays at opacity 0 forever.
                 animation: active
-                  ? `${drawRect} 1s cubic-bezier(0.22, 1, 0.36, 1) forwards`
+                  ? `${drawRect} 1s cubic-bezier(0.22, 1, 0.36, 1) forwards, ${simpleFade} 0.5s ease forwards`
                   : "none",
                 animationDelay: "1.7s",
               }}
             />
             <Box
               component="text"
+              // Telemetry tag rides the button row (button spans y 221–257
+              // in viewBox units; 243 centers this 10px baseline with it).
               x="690"
-              y="300"
+              y="243"
               textAnchor="end"
               sx={{
                 opacity: 0,
                 transform: "translateY(10px)",
-                fontFamily: '"JetBrains Mono", "Courier New", monospace',
+                fontFamily: MONO_FONT,
                 fontSize: 10,
-                fill: heroMuted,
+                fill: error ? theme.palette.error.main : heroMuted,
                 animation: active ? `${fadeUp} 0.6s ease-out forwards` : "none",
                 animationDelay: "2.2s",
               }}
             >
-              {submitting ? "Verifying..." : "Connection Lost?"}
+              {error ? "LINK ERROR" : "STANDBY"}
             </Box>
           </g>
 
@@ -631,24 +755,25 @@ export default function LoginPage() {
               y="75"
               textAnchor="middle"
               sx={{
-                fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace',
+                fontFamily: MONO_FONT,
                 fontSize: 12,
                 fontWeight: "bold",
                 fill: heroLine,
                 letterSpacing: 2,
               }}
             >
-              INITIALIZING...
+              INITIALIZING
             </Box>
             <Box
               component="text"
               y="105"
               textAnchor="middle"
               sx={{
-                fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace',
+                fontFamily: MONO_FONT,
                 fontWeight: "bold",
                 fontSize: 24,
-                fill: isComplete ? heroAccent : heroPrimary,
+                fill: isComplete ? theme.palette.success.main : heroPrimary,
+                fontVariantNumeric: "tabular-nums",
               }}
             >
               {loadingPercent}%
@@ -658,9 +783,9 @@ export default function LoginPage() {
               y="120"
               textAnchor="middle"
               sx={{
-                fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace',
+                fontFamily: MONO_FONT,
                 fontSize: 10,
-                fill: isComplete ? heroAccent : heroMuted,
+                fill: isComplete ? theme.palette.success.main : heroMuted,
               }}
             >
               {loadingCode}
@@ -702,6 +827,11 @@ export default function LoginPage() {
                     ? `${simpleFade} 0.5s ease forwards`
                     : "none",
                 animationDelay: isExiting ? "0s" : "2s",
+                boxShadow: focused
+                  ? `0 0 0 1px ${alpha(heroAccent, 0.5)}, 0 0 18px ${alpha(heroAccent, 0.18)}`
+                  : "none",
+                transitionProperty: "box-shadow",
+                transitionDuration: "200ms",
                 ...(isExiting
                   ? {
                       filter: "blur(2px)",
@@ -709,14 +839,42 @@ export default function LoginPage() {
                   : null),
               }}
             >
+              <Typography
+                component="label"
+                htmlFor="clash-token-input"
+                sx={{
+                  position: "absolute",
+                  left: 8,
+                  top: "50%",
+                  zIndex: 1,
+                  px: 0.5,
+                  fontFamily: MONO_FONT,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.1em",
+                  pointerEvents: "none",
+                  color: glitching ? "error.main" : focused ? heroAccent : heroMuted,
+                  backgroundColor: floating ? (isDark ? "rgba(9, 20, 28, 0.94)" : "rgba(248, 251, 253, 0.96)") : "transparent",
+                  transform: floating ? "translateY(-165%) scale(0.92)" : "translateY(-50%)",
+                  transformOrigin: "left center",
+                  transitionProperty: "transform, color, background-color",
+                  transitionDuration: "220ms",
+                  transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                ACCESS KEY
+              </Typography>
               <TextField
+                id="clash-token-input"
                 type="password"
                 fullWidth
                 inputRef={tokenInputRef}
                 value={token}
                 onChange={(event) => setToken(event.target.value)}
-                placeholder={t("auth.token")}
-                disabled={submitting}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                disabled={submitting || glitching}
                 variant="standard"
                 slotProps={{ input: { disableUnderline: true } }}
                 sx={{
@@ -725,7 +883,7 @@ export default function LoginPage() {
                     height: "100%",
                     px: 1.5,
                     backgroundColor: "transparent",
-                    fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace',
+                    fontFamily: MONO_FONT,
                     fontSize: 18,
                     fontWeight: "bold",
                     color: error ? "error.main" : "text.primary",
@@ -740,29 +898,13 @@ export default function LoginPage() {
                   },
                 }}
               />
-
-              {error && (
-                <Alert
-                  severity="error"
-                  sx={{
-                    position: "absolute",
-                    left: 0,
-                    top: "calc(100% + 84px)",
-                    width: "240px",
-                    py: 0,
-                    pointerEvents: "none",
-                  }}
-                >
-                  {error}
-                </Alert>
-              )}
             </Box>
 
             <Box
               sx={{
                 position: "absolute",
                 left: "56.25%",
-                top: "71.1111%",
+                top: "49.1111%",
                 width: "15%",
                 height: "8%",
                 pointerEvents: "auto",
@@ -783,25 +925,20 @@ export default function LoginPage() {
               <Button
                 type="submit"
                 variant="contained"
-                disabled={submitting}
+                disabled={submitting || glitching}
                 sx={{
                   width: "100%",
                   height: "100%",
                   minWidth: 0,
-                  borderRadius: 0,
-                  bgcolor: "text.primary",
-                  color: "background.paper",
-                  fontFamily: '"Segoe UI", sans-serif',
-                  letterSpacing: "2px",
-                  fontWeight: "bold",
-                  boxShadow: "none",
+                  letterSpacing: "0.16em",
+                  fontSize: 13,
+                  fontWeight: 800,
                   "&:hover": {
-                    bgcolor: isDark ? alpha(theme.palette.text.primary, 0.86) : "#000",
-                    boxShadow: "none",
+                    boxShadow: `0 0 18px ${alpha(theme.palette.primary.main, 0.4)}`,
                   },
                 }}
               >
-                {submitting ? <CircularProgress size={18} color="inherit" /> : "CONNECT"}
+                {submitting || glitching ? <CircularProgress size={18} color="inherit" /> : "CONNECT"}
               </Button>
             </Box>
           </Box>
@@ -810,18 +947,21 @@ export default function LoginPage() {
             sx={{
               position: "absolute",
               left: "56.25%",
-              top: "82.2222%",
-              width: "28%",
+              top: "61.1111%",
+              width: "33%",
               height: 20,
               pointerEvents: "none",
               opacity: 0,
               animation: active ? `${simpleFade} 0.5s ease forwards` : "none",
               animationDelay: "2.4s",
-              fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", "Courier New", monospace',
+              fontFamily: MONO_FONT,
               fontSize: 12,
               lineHeight: "20px",
               letterSpacing: "0.08em",
               color: statusColor,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
               ...(isExiting
                 ? {
                     animation: `${slideExitLeft} 0.8s cubic-bezier(0.55, 0.085, 0.68, 0.53) forwards`,
@@ -838,7 +978,7 @@ export default function LoginPage() {
             sx={{
               position: "absolute",
               left: "56.25%",
-              top: "87.5556%",
+              top: "67.3333%",
               width: "33%",
               pointerEvents: "none",
               opacity: 0,

@@ -7,6 +7,8 @@ body {
   min-height: 100vh;
 }
 
+/* Ambient layer: faint star chart + cyan survey grid. Business content never
+   renders here; it only sets mood behind the app shell. */
 #root::before,
 #root::after {
   content: "";
@@ -17,24 +19,24 @@ body {
 
 #root::before {
   z-index: 0;
-  opacity: 0.42;
+  opacity: 0.5;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.034) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.034) 1px, transparent 1px),
-    radial-gradient(circle at 12% 22%, rgba(255, 255, 255, 0.5) 0 1px, transparent 1.7px),
-    radial-gradient(circle at 86% 76%, rgba(255, 77, 97, 0.75) 0 1px, transparent 1.8px);
+    linear-gradient(rgba(95, 208, 224, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(95, 208, 224, 0.045) 1px, transparent 1px),
+    radial-gradient(circle at 12% 22%, rgba(140, 205, 220, 0.5) 0 1px, transparent 1.7px),
+    radial-gradient(circle at 86% 76%, rgba(224, 93, 93, 0.6) 0 1px, transparent 1.8px);
   background-size: 64px 64px, 64px 64px, 290px 290px, 390px 390px;
   mask-image: linear-gradient(to bottom, black, transparent 86%);
 }
 
 #root::after {
   z-index: 2;
-  opacity: 0.18;
-  background-image: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  opacity: 0.14;
+  background-image: linear-gradient(90deg, transparent, rgba(95, 208, 224, 0.22), transparent);
   background-size: 32% 100%;
   background-position: -36% 0;
   background-repeat: no-repeat;
-  animation: signal-sweep 14s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+  animation: signal-sweep 16s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
 }
 
 #root > * {
@@ -55,10 +57,14 @@ body {
 [data-clash-theme="light"] #root::before {
     opacity: 0.58;
     background-image:
-      linear-gradient(rgba(23, 23, 25, 0.045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(23, 23, 25, 0.045) 1px, transparent 1px),
-      radial-gradient(circle at 12% 22%, rgba(23, 23, 25, 0.34) 0 1px, transparent 1.7px),
-      radial-gradient(circle at 86% 76%, rgba(207, 49, 72, 0.62) 0 1px, transparent 1.8px);
+      linear-gradient(rgba(19, 42, 53, 0.05) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(19, 42, 53, 0.05) 1px, transparent 1px),
+      radial-gradient(circle at 12% 22%, rgba(30, 126, 147, 0.34) 0 1px, transparent 1.7px),
+      radial-gradient(circle at 86% 76%, rgba(194, 60, 60, 0.4) 0 1px, transparent 1.8px);
+  }
+
+[data-clash-theme="light"] #root::after {
+    opacity: 0.1;
   }
 
 @media (prefers-reduced-motion: reduce) {

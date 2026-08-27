@@ -357,12 +357,27 @@ export interface DownloadTaskStartResponse {
   progress: DownloadProgress;
 }
 
+export interface LocalMihomoPackage {
+  name: string;
+  size: number;
+  modified_at: number | null;
+}
+
+export interface LocalMihomoPackages {
+  directory: string;
+  packages: LocalMihomoPackage[];
+}
+
 export const getMihomoInstallStatus = () =>
   api.get<MihomoInstallStatus>("/mihomo/status");
 export const getMihomoDownloadStatus = () =>
   api.get<DownloadProgress>("/mihomo/progress/status");
+export const getLocalMihomoPackages = () =>
+  api.get<LocalMihomoPackages>("/mihomo/local-packages");
 export const installMihomo = () =>
   api.post<DownloadTaskStartResponse>("/mihomo/install");
+export const installLocalMihomoPackage = (name: string) =>
+  api.post<DownloadTaskStartResponse>("/mihomo/local-packages/install", { name });
 export const checkMihomoVersion = () =>
   api.get<MihomoVersionCheck>("/mihomo/check");
 export const upgradeMihomo = () =>

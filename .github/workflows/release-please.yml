@@ -38,3 +38,13 @@ jobs:
     uses: ./.github/workflows/build-deb.yml
     with:
       tag_name: ${{ needs.release-please.outputs.tag_name }}
+
+  build-appimage:
+    name: Build AppImage
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-appimage.yml
+    with:
+      tag_name: ${{ needs.release-please.outputs.tag_name }}

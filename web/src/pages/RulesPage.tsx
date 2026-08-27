@@ -78,6 +78,7 @@ export default function RulesPage() {
       <PageTitle
         title={t("rules.title")}
         count={rules.length}
+        aux="ROUTE RULE TABLE"
         actions={
           <Tooltip title={t("rules.refresh")}>
             <span>

@@ -1,4 +1,5 @@
 import { Box, Card, Typography, type SxProps, type Theme } from "@mui/material";
+import { alpha } from "@mui/material/styles";
 function SignalAssembly() {
   return (
     <Box
@@ -63,11 +64,14 @@ export function PageTitle({
   count,
   actions,
   eyebrow = "CONTROL SURFACE",
+  aux,
 }: {
   title: string;
   count?: number;
   actions?: React.ReactNode;
   eyebrow?: string;
+  /** English auxiliary label under the Chinese title (EVE bilingual rule). */
+  aux?: string;
 }) {
   return (
     <Box
@@ -132,6 +136,20 @@ export function PageTitle({
         >
           {title}
         </Typography>
+        {aux ? (
+          <Typography
+            sx={{
+              mt: 0.8,
+              fontFamily: '"JetBrains Mono", "Courier New", monospace',
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: "0.16em",
+              color: "text.secondary",
+            }}
+          >
+            {aux}
+          </Typography>
+        ) : null}
       </Box>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, ml: "auto" }}>
         <Box sx={{ color: "primary.main", lineHeight: 0 }}><SignalAssembly /></Box>
@@ -153,6 +171,19 @@ export function SystemPanel({
       sx={{
         position: "relative",
         overflow: "hidden",
+        // HUD corner brackets: two quiet cyan ticks marking panel geometry.
+        "&::before, &::after": {
+          content: '""',
+          position: "absolute",
+          width: 14,
+          height: 14,
+          borderColor: (currentTheme: Theme) => alpha(currentTheme.palette.primary.main, 0.4),
+          borderStyle: "solid",
+          pointerEvents: "none",
+          zIndex: 1,
+        },
+        "&::before": { top: 6, left: 6, borderWidth: "1px 0 0 1px" },
+        "&::after": { bottom: 6, right: 6, borderWidth: "0 1px 1px 0" },
         ...sx,
       }}
     >

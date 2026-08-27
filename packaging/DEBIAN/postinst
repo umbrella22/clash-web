@@ -6,14 +6,16 @@ CLASH_WEB_GROUP="clash-web"
 CLASH_WEB_DIR="/etc/clash-web"
 CLASH_WEB_PROFILES="${CLASH_WEB_DIR}/profiles"
 CLASH_WEB_BIN="${CLASH_WEB_DIR}/bin"
+CLASH_WEB_INCOMING="${CLASH_WEB_DIR}/incoming"
 
 if ! id "$CLASH_WEB_USER" &>/dev/null; then
     useradd --system --no-create-home --shell /usr/sbin/nologin "$CLASH_WEB_USER"
 fi
 
-mkdir -p "$CLASH_WEB_PROFILES" "$CLASH_WEB_BIN"
+mkdir -p "$CLASH_WEB_PROFILES" "$CLASH_WEB_BIN" "$CLASH_WEB_INCOMING"
 chown -R "$CLASH_WEB_USER:$CLASH_WEB_GROUP" "$CLASH_WEB_DIR"
 chmod 750 "$CLASH_WEB_DIR"
+chmod 770 "$CLASH_WEB_INCOMING"
 
 if [ ! -f "$CLASH_WEB_DIR/service.yaml" ]; then
     cat > "$CLASH_WEB_DIR/service.yaml" <<'EOF'
