@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0](https://github.com/umbrella22/clash-web/compare/clash-web-v0.3.0...clash-web-v0.4.0) (2026-09-15)
+
+### Features
+
+* Add GitHub release checks, configurable check intervals, and automatic application updates for deb installations using systemd.
+* Verify release package checksums, preserve local configuration, and report installation and service restart status.
+
+### Bug Fixes
+
+* Recover stalled traffic monitoring streams and wait for mihomo readiness before connecting.
+* Sort proxy nodes by ascending latency after ping tests and preserve results across stale polling responses.
+* Configure routing and DNS interception when enabling TUN, and detect failed device creation.
+
+### Dependencies
+
+* Pin Rust 1.98.1 across local and CI builds, upgrade Rust dependencies, and lock dependencies when packaging.
+* Apply consistent Rust formatting across the workspace.
+
 ## [0.3.0](https://github.com/umbrella22/clash-web/compare/clash-web-v0.2.1...clash-web-v0.3.0) (2026-08-27)
 
 
