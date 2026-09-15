@@ -6,6 +6,7 @@ import {
   getCurrentProxyTarget,
   getDelay,
   getDelayColor,
+  reconcileDelayOverrides,
   getPrimaryRuleProxyGroup,
   getQuickControlGroups,
   sortProxyGroupsByPinned,
@@ -119,6 +120,47 @@ describe("proxy helpers", () => {
     expect(summarizeGroup(group, withDead).availableNodes).toBe(2);
     expect(filterGroupProxyNames(group, withDead, "", "unavailable")).toEqual(["Dead"]);
     expect(sortProxyNames(group.all, withDead, "delay")).toEqual(["Bravo", "Alpha", "Dead"]);
+  });
+
+  it("sorts and summarizes the latest ping results before a server refetch", () => {
+    const group = buildProxyGroups(proxies)[0];
+    const latest = { Alpha: 20, Bravo: 250, Offline: 50 };
+
+    expect(sortProxyNames(group.all, proxies, "delay", latest)).toEqual([
+      "Alpha", "Offline", "Bravo",
+    ]);
+    expect(summarizeGroup(group, proxies, latest)).toMatchObject({
+      availableNodes: 3,
+      activeDelay: 250,
+      bestDelay: 20,
+    });
+    expect(filterGroupProxyNames(group, proxies, "", "available", latest)).toEqual(group.all);
+  });
+
+  it("puts failed pings last even when the previous test was fast", () => {
+    const group = buildProxyGroups(proxies)[0];
+    const latest = { Bravo: -1, Offline: 0 };
+
+    expect(sortProxyNames(group.all, proxies, "delay", latest)).toEqual([
+      "Alpha", "Bravo", "Offline",
+    ]);
+    expect(filterGroupProxyNames(group, proxies, "", "unavailable", latest)).toEqual([
+      "Bravo", "Offline",
+    ]);
+    expect(sortProxyNames(group.all, proxies, "default", latest)).toEqual(group.all);
+  });
+
+  it("keeps ping results through stale polls until the server history changes", () => {
+    const latest = { Alpha: 20, Bravo: -1 };
+    const stale = JSON.parse(JSON.stringify(proxies)) as Record<string, ProxyItem>;
+    expect(reconcileDelayOverrides(latest, proxies, stale)).toEqual(latest);
+
+    const refreshed = {
+      ...stale,
+      Alpha: { ...stale.Alpha, history: [{ time: "2026-05-30T00:01:00Z", delay: 30 }] },
+    };
+    expect(reconcileDelayOverrides(latest, proxies, refreshed)).toEqual({ Bravo: -1 });
+    expect(reconcileDelayOverrides(latest, proxies, {})).toEqual({});
   });
 
   it("maps delay to chip colors with failed/untested as neutral", () => {

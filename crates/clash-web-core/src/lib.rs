@@ -1,3 +1,4 @@
+pub mod app_update;
 pub mod backup;
 pub mod config;
 pub mod dns;

@@ -70,7 +70,8 @@ impl MihomoClient {
         let resp = self
             .request(reqwest::Method::GET, "/version")
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         let version: serde_json::Value = resp.json().await?;
         Ok(version)
     }
@@ -79,7 +80,8 @@ impl MihomoClient {
         let resp = self
             .request(reqwest::Method::GET, "/configs")
             .send()
-            .await?;
+            .await?
+            .error_for_status()?;
         let configs: serde_json::Value = resp.json().await?;
         Ok(configs)
     }

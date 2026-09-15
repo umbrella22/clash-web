@@ -15,6 +15,7 @@ pub struct AppState {
     pub installer: Arc<MihomoInstaller>,
     pub scheduler: Arc<SubscriptionScheduler>,
     pub preferences: Arc<UserPreferencesManager>,
+    pub updater: Arc<crate::updater::AppUpdater>,
 }
 
 impl AppState {
@@ -29,6 +30,7 @@ impl AppState {
         let installer = MihomoInstaller::new(&config.mihomo.config_dir);
         let scheduler = Arc::new(SubscriptionScheduler::new());
         let preferences = UserPreferencesManager::new(&config.mihomo.config_dir).await?;
+        let updater = crate::updater::AppUpdater::new(&config.mihomo.config_dir).await?;
         Ok(Self {
             config: Arc::new(config),
             mihomo: Arc::new(mihomo),
@@ -38,6 +40,7 @@ impl AppState {
             installer: Arc::new(installer),
             scheduler,
             preferences,
+            updater,
         })
     }
 }

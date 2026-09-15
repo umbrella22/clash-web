@@ -26,7 +26,10 @@ impl SubscriptionScheduler {
             .clamp(MIN_INTERVAL_HOURS, MAX_INTERVAL_HOURS)
             .checked_mul(3600)
         else {
-            warn!("Invalid subscription scheduler interval: {} hours", interval_hours);
+            warn!(
+                "Invalid subscription scheduler interval: {} hours",
+                interval_hours
+            );
             return;
         };
 

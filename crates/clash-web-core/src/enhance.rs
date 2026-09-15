@@ -156,7 +156,10 @@ fn build_default_proxy_groups(proxy_names: &[String]) -> Value {
         Value::String("type".to_string()),
         Value::String("url-test".to_string()),
     );
-    auto.insert(Value::String("proxies".to_string()), Value::Sequence(proxies));
+    auto.insert(
+        Value::String("proxies".to_string()),
+        Value::Sequence(proxies),
+    );
     auto.insert(
         Value::String("url".to_string()),
         Value::String("https://www.gstatic.com/generate_204".to_string()),
@@ -236,7 +239,10 @@ proxies:
         let yaml: Value = serde_yaml::from_str(&config).unwrap();
 
         assert_eq!(yaml["proxy-groups"][0]["name"].as_str().unwrap(), "PROXY");
-        assert_eq!(yaml["proxy-groups"][0]["proxies"][0].as_str().unwrap(), "HK");
+        assert_eq!(
+            yaml["proxy-groups"][0]["proxies"][0].as_str().unwrap(),
+            "HK"
+        );
         assert_eq!(yaml["rules"][0].as_str().unwrap(), "MATCH,PROXY");
     }
 }

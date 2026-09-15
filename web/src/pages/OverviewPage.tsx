@@ -884,12 +884,12 @@ export default function OverviewPage() {
 
         {/* Traffic Card — owns its own WS stream so realtime updates stay local */}
         <Grid size={{ xs: 12, md: 6 }} sx={getCardGridSx("traffic")}>
-          <TrafficCard />
+          <TrafficCard enabled={status?.mihomo_api_alive ?? isRunning} />
         </Grid>
 
         {/* Memory Card — owns its own WS stream so realtime updates stay local */}
         <Grid size={{ xs: 12, md: 6 }} sx={getCardGridSx("memory")}>
-          <MemoryCard />
+          <MemoryCard enabled={status?.mihomo_api_alive ?? isRunning} />
         </Grid>
       </Grid>
     </Box>

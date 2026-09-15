@@ -15,10 +15,10 @@ function formatSpeed(bytes: number): string {
  * Owns the traffic WebSocket stream so its 1s updates re-render only this
  * card instead of the whole overview page.
  */
-export default function TrafficCard() {
+export default function TrafficCard({ enabled }: { enabled: boolean }) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { traffic, history, status: trafficStreamStatus } = useTraffic();
+  const { traffic, history, status: trafficStreamStatus } = useTraffic(enabled);
 
   const trafficLabels = useMemo(
     () => Array.from({ length: Math.max(history.length, 12) }, (_, index) => `${index + 1}`),
@@ -63,7 +63,7 @@ export default function TrafficCard() {
             </Typography>
           </Box>
           <Chip
-            label={trafficStreamStatus === "open" ? t("overview.realtime") : t("overview.reconnecting")}
+            label={trafficStreamStatus === "closed" ? t("overview.stopped") : trafficStreamStatus === "open" ? t("overview.realtime") : t("overview.reconnecting")}
             size="small"
             color={trafficStreamStatus === "open" ? "info" : "warning"}
             variant="outlined"

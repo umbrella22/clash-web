@@ -3,10 +3,10 @@ Version: 0.1.0
 Section: net
 Priority: optional
 Architecture: amd64
-Depends: libc6 (>= 2.31)
+Depends: libc6 (>= 2.31), systemd, polkitd | policykit-1
 Maintainer: Clash Web <clash-web@example.com>
 Description: Web-based mihomo proxy management interface
  Clash Web provides a browser-based interface to manage mihomo
  (Clash Meta) proxy core. It supports subscription management,
  proxy node switching, traffic monitoring, and system proxy control.
-Homepage: https://github.com/clash-web/clash-web
+Homepage: https://github.com/umbrella22/clash-web

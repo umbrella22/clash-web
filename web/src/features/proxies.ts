@@ -118,13 +118,27 @@ function average(values: number[]): number | null {
   return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
 }
 
-export function getDelay(proxy?: ProxyItem | null): number {
+export function getDelay(proxy?: ProxyItem | null, override?: number): number {
   const history = proxy?.history;
-  if (!history || history.length === 0) return -1;
   // mihomo records delay 0 when the URL test FAILED — treat it as unavailable,
   // never as a (best-looking) 0ms result.
-  const delay = history[history.length - 1].delay;
+  const delay = override ?? history?.at(-1)?.delay ?? -1;
   return delay > 0 ? delay : -1;
+}
+
+export function reconcileDelayOverrides(
+  overrides: Record<string, number>,
+  previous: Record<string, ProxyItem>,
+  current: Record<string, ProxyItem>
+): Record<string, number> {
+  return Object.fromEntries(Object.entries(overrides).filter(([name]) => {
+    const before = previous[name];
+    const after = current[name];
+    if (!after || before?.type !== after.type) return false;
+    const beforeTest = before?.history?.at(-1);
+    const afterTest = after.history?.at(-1);
+    return beforeTest?.time === afterTest?.time && beforeTest?.delay === afterTest?.delay;
+  }));
 }
 
 export type DelayColor = "success" | "warning" | "error" | "default";
@@ -358,12 +372,13 @@ export function getQuickControlGroups(
 
 export function summarizeGroup(
   group: ProxyGroup,
-  proxies: Record<string, ProxyItem>
+  proxies: Record<string, ProxyItem>,
+  delayOverrides: Record<string, number> = {}
 ): GroupSummary {
   const delays = group.all
-    .map((name) => getDelay(proxies[name]))
+    .map((name) => getDelay(proxies[name], delayOverrides[name]))
     .filter((delay) => delay >= 0);
-  const activeDelay = group.now ? getDelay(proxies[group.now]) : -1;
+  const activeDelay = group.now ? getDelay(proxies[group.now], delayOverrides[group.now]) : -1;
 
   return {
     totalNodes: group.all.length,
@@ -379,7 +394,8 @@ export function filterGroupProxyNames(
   group: ProxyGroup,
   proxies: Record<string, ProxyItem>,
   search: string,
-  availabilityFilter: ProxyAvailabilityFilter
+  availabilityFilter: ProxyAvailabilityFilter,
+  delayOverrides: Record<string, number> = {}
 ): string[] {
   const keyword = normalizeKeyword(search);
   const groupMatched =
@@ -387,7 +403,7 @@ export function filterGroupProxyNames(
     (includesKeyword(group.groupName, keyword) || includesKeyword(group.now, keyword));
 
   return group.all.filter((name) => {
-    const delay = getDelay(proxies[name]);
+    const delay = getDelay(proxies[name], delayOverrides[name]);
     const availabilityMatched =
       availabilityFilter === "all" ||
       (availabilityFilter === "available" && delay >= 0) ||
@@ -402,7 +418,8 @@ export function filterGroupProxyNames(
 export function sortProxyNames(
   names: string[],
   proxies: Record<string, ProxyItem>,
-  sortMode: ProxySortMode
+  sortMode: ProxySortMode,
+  delayOverrides: Record<string, number> = {}
 ): string[] {
   const sorted = [...names];
 
@@ -412,8 +429,8 @@ export function sortProxyNames(
 
   if (sortMode === "delay") {
     return sorted.sort((left, right) => {
-      const leftDelay = getDelay(proxies[left]);
-      const rightDelay = getDelay(proxies[right]);
+      const leftDelay = getDelay(proxies[left], delayOverrides[left]);
+      const rightDelay = getDelay(proxies[right], delayOverrides[right]);
 
       if (leftDelay < 0 && rightDelay < 0) return left.localeCompare(right);
       if (leftDelay < 0) return 1;

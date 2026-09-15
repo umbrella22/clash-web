@@ -88,7 +88,7 @@ cd "$PROJECT_DIR"
 
 printf '%s\n' '[1/5] Building Rust backend (release)...'
 configure_target_toolchain "$TARGET_TRIPLE"
-cargo build --release --target "$TARGET_TRIPLE" --package clash-web-service
+CLASH_WEB_VERSION="$VERSION" cargo build --locked --release --target "$TARGET_TRIPLE" --package clash-web-service
 
 printf '%s\n' '[2/5] Building frontend...'
 pnpm --dir web build

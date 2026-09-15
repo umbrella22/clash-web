@@ -8,6 +8,7 @@ pub mod profiles;
 pub mod status;
 pub mod system;
 pub mod traffic;
+pub mod updates;
 
 use axum::Router;
 use axum::http::{HeaderValue, Method, header};
@@ -22,6 +23,10 @@ pub fn create_router(state: AppState) -> Router {
     let api_routes = Router::new()
         .route("/auth/status", get(auth::get_auth_status))
         .route("/auth/login", post(auth::login))
+        .route("/updates", get(updates::status))
+        .route("/updates/check", post(updates::check))
+        .route("/updates/settings", put(updates::settings))
+        .route("/updates/install", post(updates::install))
         .route("/mihomo/status", get(installer::get_install_status))
         .route(
             "/mihomo/local-packages",
@@ -396,6 +401,72 @@ mod tests {
 
     async fn test_state(api_url: String, config_dir: String) -> AppState {
         test_state_with_token(api_url, config_dir, "").await
+    }
+
+    #[tokio::test]
+    async fn application_update_settings_require_auth_validate_and_survive_restart() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().to_str().unwrap().to_string();
+        let state =
+            test_state_with_token("http://127.0.0.1:1".into(), path.clone(), "test-token").await;
+        let address = spawn_router(create_router(state)).await;
+        let client = reqwest::Client::new();
+        for (method, route) in [
+            (Method::GET, "/updates"),
+            (Method::PUT, "/updates/settings"),
+            (Method::POST, "/updates/check"),
+            (Method::POST, "/updates/install"),
+        ] {
+            let response = client
+                .request(method, format!("{address}/api/v1{route}"))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::UNAUTHORIZED);
+        }
+        let response = client
+            .put(format!("{address}/api/v1/updates/settings"))
+            .bearer_auth("test-token")
+            .json(&json!({"check_interval_hours": 6, "auto_update": false}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let body: Value = response.json().await.unwrap();
+        assert_eq!(body["settings"]["check_interval_hours"], 6);
+        assert_eq!(body["current_version"], crate::updater::CURRENT_VERSION);
+        for body in [
+            json!({"check_interval_hours": 0, "auto_update": true}),
+            json!({"check_interval_hours": 721, "auto_update": false}),
+        ] {
+            let response = client
+                .put(format!("{address}/api/v1/updates/settings"))
+                .bearer_auth("test-token")
+                .json(&body)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+        }
+        let restarted =
+            test_state_with_token("http://127.0.0.1:1".into(), path, "test-token").await;
+        assert_eq!(
+            restarted
+                .updater
+                .status()
+                .await
+                .settings
+                .check_interval_hours,
+            6
+        );
+        // Development builds must never attempt system package installation.
+        let response = client
+            .post(format!("{address}/api/v1/updates/install"))
+            .bearer_auth("test-token")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

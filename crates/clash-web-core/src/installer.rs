@@ -1017,6 +1017,23 @@ mod tests {
     }
 
     #[test]
+    fn extracts_windows_binary_from_deflated_zip() {
+        // Generated with Python's zipfile, independently of the Rust zip crate.
+        let archive = include_bytes!("../tests/fixtures/mihomo-windows.zip");
+        let config_dir = temp_config_dir();
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let installer = MihomoInstaller::new(config_dir.to_str().unwrap());
+        let output = config_dir.join("mihomo.exe");
+
+        installer
+            .extract_zip_binary(archive, output.to_str().unwrap())
+            .unwrap();
+
+        assert_eq!(std::fs::read(&output).unwrap(), b"fake mihomo executable\n");
+        std::fs::remove_dir_all(config_dir).unwrap();
+    }
+
+    #[test]
     fn extract_gzip_binary_rejects_extracted_payload_over_limit() {
         let installer = MihomoInstaller::new("/tmp/clash-web-test-installer");
         let mut archive = Vec::new();

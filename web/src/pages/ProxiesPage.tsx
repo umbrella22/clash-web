@@ -40,6 +40,7 @@ import {
   getDelay,
   getDelayColor,
   GROUP_TYPES,
+  reconcileDelayOverrides,
   type ProviderVehicleFilter,
   type ProxyAvailabilityFilter,
   type ProxyItem,
@@ -88,11 +89,11 @@ export default function ProxiesPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState(0);
-  const [sortMode, setSortMode] = useState<ProxySortMode>("default");
+  const [sortMode, setSortMode] = useState<ProxySortMode>("delay");
   const [availabilityFilter, setAvailabilityFilter] =
     useState<ProxyAvailabilityFilter>("all");
   // Session-local delay results so batch/single tests can stream into the UI
-  // without waiting for a full refetch. Superseded by fresh server data.
+  // without waiting for a full refetch. Superseded by changed server history.
   const [delayOverrides, setDelayOverrides] = useState<Record<string, number>>({});
   const [testingNodes, setTestingNodes] = useState<ReadonlySet<string>>(new Set());
   const [batchProgress, setBatchProgress] = useState<{ done: number; total: number } | null>(null);
@@ -116,14 +117,17 @@ export default function ProxiesPage() {
     void refetch().finally(() => setManualRefreshing(false));
   }, [refetch]);
 
-  // Fresh server data (poll or post-test invalidation) supersedes the
-  // session-local overrides. Render-time adjustment per React's
+  // A poll may have started before a ping completed. Only changed history
+  // supersedes local results, so stale refetches cannot undo the new order.
+  // Render-time adjustment per React's
   // "adjusting state when a prop changes" pattern.
   const [seenDataStamp, setSeenDataStamp] = useState(dataUpdatedAt);
+  const [seenProxies, setSeenProxies] = useState(data?.proxies);
   if (seenDataStamp !== dataUpdatedAt) {
     setSeenDataStamp(dataUpdatedAt);
+    setSeenProxies(data?.proxies);
     if (Object.keys(delayOverrides).length > 0) {
-      setDelayOverrides({});
+      setDelayOverrides(reconcileDelayOverrides(delayOverrides, seenProxies ?? {}, data?.proxies ?? {}));
     }
   }
 
@@ -177,17 +181,19 @@ export default function ProxiesPage() {
           // Pinned groups start expanded, others collapsed; an active search
           // force-expands so matches are actually visible.
           collapsed: searchActive ? false : isGroupCollapsed(group.groupName, !pinned),
-          summary: summarizeGroup(group, proxies),
+          summary: summarizeGroup(group, proxies, delayOverrides),
           visibleNames: sortProxyNames(
-            filterGroupProxyNames(group, proxies, search, availabilityFilter),
+            filterGroupProxyNames(group, proxies, search, availabilityFilter, delayOverrides),
             proxies,
-            sortMode
+            sortMode,
+            delayOverrides
           ),
         };
       })
       .filter((group) => group.visibleNames.length > 0);
   }, [
     availabilityFilter,
+    delayOverrides,
     groupType,
     groups,
     isGroupCollapsed,
@@ -222,7 +228,9 @@ export default function ProxiesPage() {
 
   const pingGoogle = useMutation({
     mutationFn: (proxyName: string) => pingGoogleWithProxy(proxyName).then((response) => response.data),
+    onMutate: () => setSortMode("delay"),
     onSuccess: (result, proxyName) => {
+      setDelayOverrides((current) => ({ ...current, [proxyName]: result.delay > 0 ? result.delay : -1 }));
       showToast({
         severity: "success",
         message: t("proxies.google_ping_success", {
@@ -232,6 +240,7 @@ export default function ProxiesPage() {
       });
     },
     onError: (error, proxyName) => {
+      setDelayOverrides((current) => ({ ...current, [proxyName]: -1 }));
       showToast({
         severity: "error",
         message: formatApiError(error, t("proxies.google_ping_failed", { name: proxyName })),
@@ -240,6 +249,7 @@ export default function ProxiesPage() {
   });
 
   const handleTestNode = useCallback((name: string) => {
+    setSortMode("delay");
     setTestingNodes((current) => new Set(current).add(name));
     pingGoogleWithProxy(name)
       .then((response) => {
@@ -266,6 +276,7 @@ export default function ProxiesPage() {
         return;
       }
 
+      setSortMode("delay");
       setBatchProgress({ done: 0, total: targets.length });
       setTestingNodes((current) => {
         const next = new Set(current);

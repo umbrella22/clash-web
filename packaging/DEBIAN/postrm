@@ -6,7 +6,9 @@ if [ "$1" = "purge" ]; then
     systemctl disable mihomo.service 2>/dev/null || true
     rm -f /lib/systemd/system/clash-web.service
     rm -f /lib/systemd/system/mihomo.service
+    rm -f /lib/systemd/system/clash-web-update.service
     rm -f /etc/polkit-1/rules.d/10-clash-web-mihomo.rules
+    rm -f /etc/polkit-1/rules.d/10-clash-web-update.rules
     systemctl daemon-reload
 
     echo "Removing clash-web user..."

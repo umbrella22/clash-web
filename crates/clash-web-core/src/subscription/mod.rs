@@ -327,7 +327,11 @@ fn normalize_uri_subscription(content: &str) -> Result<NormalizedSubscription> {
             Ok(parsed) => proxies.extend(parsed),
             Err(error) => {
                 skipped += 1;
-                tracing::warn!("Skipping unparsable share link at line {}: {}", index + 1, error);
+                tracing::warn!(
+                    "Skipping unparsable share link at line {}: {}",
+                    index + 1,
+                    error
+                );
                 if first_error.is_none() {
                     first_error = Some(error);
                 }
@@ -336,7 +340,10 @@ fn normalize_uri_subscription(content: &str) -> Result<NormalizedSubscription> {
     }
 
     if skipped > 0 {
-        tracing::warn!("Skipped {} unparsable share link(s) in subscription", skipped);
+        tracing::warn!(
+            "Skipped {} unparsable share link(s) in subscription",
+            skipped
+        );
     }
 
     if proxies.is_empty() {
@@ -1894,7 +1901,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(yaml["proxies"][0]["cipher"].as_str().unwrap(), "aes-128-gcm");
+        assert_eq!(
+            yaml["proxies"][0]["cipher"].as_str().unwrap(),
+            "aes-128-gcm"
+        );
         assert_eq!(yaml["proxies"][0]["password"].as_str().unwrap(), "p@ss");
         assert_eq!(yaml["proxies"][0]["name"].as_str().unwrap(), "Plain");
     }
@@ -1906,8 +1916,12 @@ mod tests {
             "vless://123e4567-e89b-12d3-a456-426614174000@example.com:443?security=tls&sni=v.example.com#V1",
         ]
         .join("\n");
-        let yaml: Value =
-            serde_yaml::from_str(&normalize_subscription_content(&subscription).unwrap().content).unwrap();
+        let yaml: Value = serde_yaml::from_str(
+            &normalize_subscription_content(&subscription)
+                .unwrap()
+                .content,
+        )
+        .unwrap();
 
         assert_eq!(
             yaml["proxies"][0]["sni"].as_str().unwrap(),
@@ -1922,8 +1936,11 @@ mod tests {
 
     #[test]
     fn skips_malformed_share_links_and_keeps_valid_ones() {
-        let subscription = ["ss://!!!not-a-valid-link", "hy2://password@example.com:8443#OK"]
-            .join("\n");
+        let subscription = [
+            "ss://!!!not-a-valid-link",
+            "hy2://password@example.com:8443#OK",
+        ]
+        .join("\n");
         let normalized = normalize_subscription_content(&subscription).unwrap();
         assert_eq!(normalized.skipped_links, 1);
         let yaml: Value = serde_yaml::from_str(&normalized.content).unwrap();
@@ -1943,7 +1960,10 @@ mod tests {
     #[test]
     fn vmess_json_skips_empty_host_and_maps_fingerprint() {
         let config = r#"{"v":"2","ps":"香港节点","add":"1.2.3.4","port":"19999","id":"123e4567-e89b-12d3-a456-426614174000","aid":"0","scy":"auto","net":"tcp","type":"none","host":"","path":"","tls":"","fp":"chrome"}"#;
-        let link = format!("vmess://{}", general_purpose::STANDARD_NO_PAD.encode(config));
+        let link = format!(
+            "vmess://{}",
+            general_purpose::STANDARD_NO_PAD.encode(config)
+        );
         let yaml: Value =
             serde_yaml::from_str(&normalize_subscription_content(&link).unwrap().content).unwrap();
 
@@ -2080,8 +2100,12 @@ rules:
             "tuic://123e4567-e89b-12d3-a456-426614174000:secret@example.com:443?congestion_control=bbr&udp_relay_mode=native&sni=tuic.example.com#TUIC",
         ]
         .join("\n");
-        let yaml: Value =
-            serde_yaml::from_str(&normalize_subscription_content(&subscription).unwrap().content).unwrap();
+        let yaml: Value = serde_yaml::from_str(
+            &normalize_subscription_content(&subscription)
+                .unwrap()
+                .content,
+        )
+        .unwrap();
 
         assert_eq!(yaml["proxies"][0]["type"].as_str().unwrap(), "hysteria2");
         assert_eq!(yaml["proxies"][0]["obfs"].as_str().unwrap(), "salamander");
@@ -2106,8 +2130,12 @@ rules:
             "anytls://user@example.org:443?sni=anytls.example.org&insecure=1#AnyTLS",
         ]
         .join("\n");
-        let yaml: Value =
-            serde_yaml::from_str(&normalize_subscription_content(&subscription).unwrap().content).unwrap();
+        let yaml: Value = serde_yaml::from_str(
+            &normalize_subscription_content(&subscription)
+                .unwrap()
+                .content,
+        )
+        .unwrap();
 
         assert_eq!(yaml["proxies"][0]["type"].as_str().unwrap(), "http");
         assert_eq!(yaml["proxies"][0]["tls"].as_bool().unwrap(), true);

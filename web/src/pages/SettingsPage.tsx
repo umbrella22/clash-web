@@ -73,6 +73,7 @@ import {
 } from "../hooks/useApi";
 import type { BackupMetadata } from "../services/api";
 import { PageTitle } from "../components/SystemChrome";
+import AppUpdateCard from "../components/AppUpdateCard";
 import {
   getOverviewCardOrder,
   normalizeOverviewCards,
@@ -272,6 +273,9 @@ export default function SettingsPage() {
     <Box>
       <PageTitle title={t("settings.title")} eyebrow="SYSTEM CONFIGURATION" aux="SERVICE & RUNTIME OPTIONS" />
       <Grid container spacing={3}>
+        <Grid size={{ xs: 12 }}>
+          <AppUpdateCard />
+        </Grid>
         {/* Mihomo Version */}
         <Grid size={{ xs: 12 }}>
           <MihomoVersionCard />
@@ -1342,16 +1346,14 @@ function TunModeCard() {
     queryFn: () => getTunMode().then((r) => r.data),
   });
 
-  const [stack, setStack] = useState("mixed");
-
-  useEffect(() => {
-    if (data) setStack(data.stack);
-  }, [data]);
+  const [stackOverride, setStackOverride] = useState<string | null>(null);
+  const stack = stackOverride ?? data?.stack ?? "mixed";
 
   const toggle = useMutation({
     mutationFn: (enabled: boolean) => setTunMode(enabled, stack),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["tunMode"] });
+      setStackOverride(null);
     },
     onError: (error) =>
       showToast({ message: formatApiError(error, t("settings.tun_failed")), severity: "error" }),
@@ -1382,7 +1384,7 @@ function TunModeCard() {
           <Button
             variant={data.enabled ? "outlined" : "contained"}
             size="small"
-            onClick={() => toggle.mutate(stackChanged ? data.enabled : !data.enabled)}
+            onClick={() => toggle.mutate(data.enabled ? stackChanged : true)}
             disabled={toggle.isPending}
           >
             {buttonLabel}
@@ -1400,7 +1402,8 @@ function TunModeCard() {
               <Select
                 value={stack}
                 label={t("settings.tun_stack")}
-                onChange={(e) => setStack(e.target.value)}
+                onChange={(e) => setStackOverride(e.target.value)}
+                disabled={toggle.isPending}
               >
                 <MenuItem value="mixed">{t("settings.stack_mixed")}</MenuItem>
                 <MenuItem value="gvisor">{t("settings.stack_gvisor")}</MenuItem>

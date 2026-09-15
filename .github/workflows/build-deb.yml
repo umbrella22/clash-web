@@ -69,6 +69,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: "1.98.1"
           targets: i686-unknown-linux-gnu,aarch64-unknown-linux-musl
 
       - name: Set up Node.js
@@ -119,5 +120,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG_NAME }}
-          files: target/deb/*.deb
+          files: |
+            target/deb/*.deb
+            target/deb/*.deb.sha256
           fail_on_unmatched_files: true

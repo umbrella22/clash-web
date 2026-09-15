@@ -53,12 +53,26 @@ async fn proxy_stream(
 ) {
     let (mut sender, mut receiver) = socket.split();
 
-    let stream_result = client.get_stream(&path).await;
+    // Telemetry emits every second. Logs may legitimately wait indefinitely
+    // for their first matching event before sending the response headers.
+    let stream_result = if matches!(path.as_str(), "/traffic" | "/memory") {
+        tokio::time::timeout(std::time::Duration::from_secs(10), client.get_stream(&path)).await
+    } else {
+        Ok(client.get_stream(&path).await)
+    };
     let resp = match stream_result {
-        Ok(r) => r,
-        Err(_) => return,
+        Ok(Ok(r)) => r,
+        Ok(Err(error)) => {
+            tracing::warn!(%path, %error, "Failed to connect to mihomo stream");
+            return;
+        }
+        Err(_) => {
+            tracing::warn!(%path, "Timed out connecting to mihomo stream");
+            return;
+        }
     };
     if !resp.status().is_success() {
+        tracing::warn!(%path, status = %resp.status(), "mihomo rejected stream request");
         return;
     }
 
@@ -87,7 +101,11 @@ async fn proxy_stream(
                         let Ok(text) = std::str::from_utf8(line) else {
                             continue;
                         };
-                        if sender.send(Message::Text(text.to_string().into())).await.is_err() {
+                        if sender
+                            .send(Message::Text(text.to_string().into()))
+                            .await
+                            .is_err()
+                        {
                             return;
                         }
                     }

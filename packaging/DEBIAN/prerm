@@ -1,5 +1,10 @@
 #!/bin/bash
 set -e
 
-systemctl stop clash-web.service 2>/dev/null || true
-systemctl stop mihomo.service 2>/dev/null || true
+case "$1" in
+    remove|deconfigure)
+        systemctl stop clash-web-update.service 2>/dev/null || true
+        systemctl stop clash-web.service 2>/dev/null || true
+        systemctl stop mihomo.service 2>/dev/null || true
+        ;;
+esac

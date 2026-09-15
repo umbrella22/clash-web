@@ -69,6 +69,7 @@ systemctl reset-failed mihomo.service 2>/dev/null || true
 
 if command -v pkcheck &>/dev/null || systemctl list-unit-files polkit.service &>/dev/null; then
     chmod 644 /etc/polkit-1/rules.d/10-clash-web-mihomo.rules 2>/dev/null || true
+    chmod 644 /etc/polkit-1/rules.d/10-clash-web-update.rules 2>/dev/null || true
 fi
 
 if command -v mihomo &>/dev/null || [ -f "$CLASH_WEB_BIN/mihomo" ]; then

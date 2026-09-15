@@ -95,7 +95,7 @@ echo "=== Building clash-web ${VERSION} for ${ARCH} (${TARGET_TRIPLE}) ==="
 echo "[1/5] Building Rust backend (release)..."
 cd "$PROJECT_DIR"
 configure_target_toolchain "$TARGET_TRIPLE"
-cargo build --release --target "$TARGET_TRIPLE"
+CLASH_WEB_VERSION="$VERSION" cargo build --locked --release --target "$TARGET_TRIPLE"
 
 echo "[2/5] Building frontend..."
 pnpm --dir web build
@@ -119,7 +119,9 @@ cp -r "${PROJECT_DIR}/web/dist/"* "$BUILD_DIR/usr/share/clash-web/ui/"
 
 cp "${PROJECT_DIR}/packaging/systemd/mihomo.service" "$BUILD_DIR/lib/systemd/system/"
 cp "${PROJECT_DIR}/packaging/systemd/clash-web.service" "$BUILD_DIR/lib/systemd/system/"
+cp "${PROJECT_DIR}/packaging/systemd/clash-web-update.service" "$BUILD_DIR/lib/systemd/system/"
 cp "${PROJECT_DIR}/packaging/polkit/10-clash-web-mihomo.rules" "$BUILD_DIR/etc/polkit-1/rules.d/"
+cp "${PROJECT_DIR}/packaging/polkit/10-clash-web-update.rules" "$BUILD_DIR/etc/polkit-1/rules.d/"
 
 mkdir -p "$BUILD_DIR/DEBIAN"
 cp "${PROJECT_DIR}/packaging/DEBIAN/control" "$BUILD_DIR/DEBIAN/control"

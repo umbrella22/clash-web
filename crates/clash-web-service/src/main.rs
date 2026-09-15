@@ -1,11 +1,12 @@
 mod api;
 mod middleware;
 mod state;
+mod updater;
 
 use clap::Parser;
 use clash_web_core::AppConfig;
-use std::net::IpAddr;
 use state::AppState;
+use std::net::IpAddr;
 
 fn requires_auth_token(config: &AppConfig) -> bool {
     if !config.auth.token.is_empty() {
@@ -20,10 +21,12 @@ fn requires_auth_token(config: &AppConfig) -> bool {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "clash-web-service", about = "Clash Web Management Service")]
+#[command(name = "clash-web-service", about = "Clash Web Management Service", version = updater::CURRENT_VERSION)]
 struct Args {
     #[arg(short, long, default_value = "/etc/clash-web/service.yaml")]
     config: String,
+    #[arg(long, hide = true)]
+    apply_update: bool,
 }
 
 #[tokio::main]
@@ -38,6 +41,9 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let args = Args::parse();
+    if args.apply_update {
+        return updater::install::apply().await;
+    }
     let config_path = std::path::Path::new(&args.config);
     let config = AppConfig::load(config_path)?;
     if requires_auth_token(&config) {
@@ -49,6 +55,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Listening on {}", addr);
 
     let state = AppState::new(config, Some(config_path)).await?;
+    state.updater.start_scheduler();
 
     if state.config.subscription_auto_update_interval > 0 {
         state.scheduler.start(

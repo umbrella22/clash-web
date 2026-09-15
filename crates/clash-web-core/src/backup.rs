@@ -95,8 +95,10 @@ impl BackupManager {
 
         let config_dir = self.config_dir.clone();
         let service_config_path = self.service_config_path.clone();
-        tokio::task::spawn_blocking(move || restore_files_blocking(&backup_dir, &config_dir, service_config_path))
-            .await??;
+        tokio::task::spawn_blocking(move || {
+            restore_files_blocking(&backup_dir, &config_dir, service_config_path)
+        })
+        .await??;
 
         Ok(RestoreBackupResult {
             restored,
@@ -153,8 +155,10 @@ impl BackupManager {
     async fn enforce_retention(&self) -> anyhow::Result<()> {
         let backups_dir = self.backups_dir();
         let service_config_path = self.service_config_path.clone();
-        tokio::task::spawn_blocking(move || enforce_retention_blocking(backups_dir, service_config_path))
-            .await??;
+        tokio::task::spawn_blocking(move || {
+            enforce_retention_blocking(backups_dir, service_config_path)
+        })
+        .await??;
         Ok(())
     }
 
@@ -267,7 +271,10 @@ fn copy_current_files_blocking(
         }
     }
 
-    copy_file_if_exists(config_dir.join("profiles.json"), backup_dir.join("profiles.json"))?;
+    copy_file_if_exists(
+        config_dir.join("profiles.json"),
+        backup_dir.join("profiles.json"),
+    )?;
     copy_file_if_exists(config_dir.join("dns.yaml"), backup_dir.join("dns.yaml"))?;
     copy_dir_if_exists(config_dir.join("profiles"), backup_dir.join("profiles"))?;
     Ok(())
@@ -288,7 +295,10 @@ fn restore_files_blocking(
         }
     }
 
-    copy_file_if_exists(backup_dir.join("profiles.json"), config_dir.join("profiles.json"))?;
+    copy_file_if_exists(
+        backup_dir.join("profiles.json"),
+        config_dir.join("profiles.json"),
+    )?;
     copy_file_if_exists(backup_dir.join("dns.yaml"), config_dir.join("dns.yaml"))?;
 
     let source_profiles = backup_dir.join("profiles");
@@ -322,7 +332,8 @@ fn write_metadata_blocking(backup_dir: &Path, metadata: &BackupMetadata) -> anyh
 }
 
 fn is_restorable_blocking(backup_dir: &Path, service_config_path: Option<&PathBuf>) -> bool {
-    let has_service_config = service_config_path.is_none() || backup_dir.join("service.yaml").is_file();
+    let has_service_config =
+        service_config_path.is_none() || backup_dir.join("service.yaml").is_file();
     has_service_config
         && backup_dir.join("metadata.json").is_file()
         && backup_dir.join("profiles.json").is_file()
@@ -330,7 +341,10 @@ fn is_restorable_blocking(backup_dir: &Path, service_config_path: Option<&PathBu
         && backup_dir.join("profiles").is_dir()
 }
 
-fn validate_backup_source(config_dir: &Path, service_config_path: Option<&PathBuf>) -> anyhow::Result<()> {
+fn validate_backup_source(
+    config_dir: &Path,
+    service_config_path: Option<&PathBuf>,
+) -> anyhow::Result<()> {
     let mut stats = DirStats::default();
     add_file_stats(config_dir.join("profiles.json"), &mut stats)?;
     add_file_stats(config_dir.join("dns.yaml"), &mut stats)?;

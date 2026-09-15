@@ -196,12 +196,14 @@ async fn apply_profile_config(state: &AppState, uid: &str) -> Result<(), AppErro
     {
         Ok(resp) => resp,
         Err(error) => {
-            let output = systemctl("restart", "mihomo").await.map_err(|restart_error| {
-                AppError::Internal(format!(
-                    "Failed to apply config: {}, and failed to restart mihomo: {}",
-                    error, restart_error
-                ))
-            })?;
+            let output = systemctl("restart", "mihomo")
+                .await
+                .map_err(|restart_error| {
+                    AppError::Internal(format!(
+                        "Failed to apply config: {}, and failed to restart mihomo: {}",
+                        error, restart_error
+                    ))
+                })?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(AppError::Internal(format!(
@@ -299,12 +301,14 @@ async fn clear_runtime_config(state: &AppState) -> Result<(), AppError> {
             }
         }
         Err(error) => {
-            let output = systemctl("restart", "mihomo").await.map_err(|restart_error| {
-                AppError::Internal(format!(
-                    "Failed to clear runtime config: {}, and failed to restart mihomo: {}",
-                    error, restart_error
-                ))
-            })?;
+            let output = systemctl("restart", "mihomo")
+                .await
+                .map_err(|restart_error| {
+                    AppError::Internal(format!(
+                        "Failed to clear runtime config: {}, and failed to restart mihomo: {}",
+                        error, restart_error
+                    ))
+                })?;
             if output.status.success() {
                 Ok(())
             } else {

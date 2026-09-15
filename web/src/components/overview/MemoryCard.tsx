@@ -20,10 +20,10 @@ import { metricPanelSx, sharedCardContentSx, sharedCardSx } from "./overviewCard
  * Owns the memory WebSocket stream so its 1s updates re-render only this
  * card instead of the whole overview page.
  */
-export default function MemoryCard() {
+export default function MemoryCard({ enabled }: { enabled: boolean }) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { memory, history: memoryHistory, status: memoryStreamStatus } = useMemory();
+  const { memory, history: memoryHistory, status: memoryStreamStatus } = useMemory(enabled);
 
   const memUsed = memory.inuse;
   const memoryLimitFromHistory = memoryHistory.findLast((item) => item.oslimit > 0)?.oslimit ?? 0;
@@ -67,7 +67,7 @@ export default function MemoryCard() {
             </Typography>
           </Box>
           <Chip
-            label={memoryStreamStatus === "open" ? t("overview.realtime") : t("overview.reconnecting")}
+            label={memoryStreamStatus === "closed" ? t("overview.stopped") : memoryStreamStatus === "open" ? t("overview.realtime") : t("overview.reconnecting")}
             size="small"
             color={memoryStreamStatus === "open" ? "secondary" : "warning"}
             variant="outlined"

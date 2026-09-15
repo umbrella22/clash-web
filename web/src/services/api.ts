@@ -116,6 +116,40 @@ export interface ServiceStatus {
 }
 
 export const getStatus = () => api.get<ServiceStatus>("/status");
+
+export interface AppUpdateSettings {
+  check_interval_hours: number;
+  auto_update: boolean;
+}
+
+export type AppInstallPhase = "idle" | "queued" | "checking" | "downloading" | "installing" | "restarting" | "done" | "error";
+
+export interface AppUpdateStatus {
+  current_version: string;
+  repository_url: string;
+  installation_supported: boolean;
+  settings: AppUpdateSettings;
+  checking: boolean;
+  last_checked_at: number | null;
+  next_check_at: number | null;
+  latest: { version: string; tag: string; url: string; notes: string } | null;
+  update_available: boolean;
+  package_ready: boolean;
+  check_error: string | null;
+  installation: {
+    phase: AppInstallPhase;
+    version: string | null;
+    updated_at: number;
+    error: string | null;
+  };
+}
+
+export const getAppUpdateStatus = () => api.get<AppUpdateStatus>("/updates");
+export const checkAppUpdate = () => api.post<AppUpdateStatus>("/updates/check", undefined, { timeout: 30000 });
+export const saveAppUpdateSettings = (settings: AppUpdateSettings) =>
+  api.put<AppUpdateStatus>("/updates/settings", settings);
+export const installAppUpdate = () => api.post<AppUpdateStatus>("/updates/install", undefined, { timeout: 20000 });
+
 export const startMihomo = () => api.post("/start");
 export const stopMihomo = () => api.post("/stop");
 export const restartMihomo = () => api.post("/restart");

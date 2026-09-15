@@ -39,7 +39,7 @@ clash-web/
 
 需要安装：
 
-- Rust toolchain
+- Rust 1.98.1（由 `rust-toolchain.toml` 固定，本地与 CI 使用同一版本）
 - Node.js
 - pnpm
 - 可选：本机 mihomo 或通过 Web UI 后续安装 mihomo
@@ -176,6 +176,22 @@ target/appimage/clash-web_<version>_x86_64.AppImage
 ```
 
 AppImage 适合便携使用，不会创建或启用系统级 systemd unit。当前 Web UI 中 mihomo 的启动、停止和重启操作仍依赖 `systemctl`，TUN 模式仍需要系统授予相应网络权限；需要完整系统服务能力时请使用 deb 包。
+
+## Clash Web 应用更新
+
+在设置页的“Clash Web 应用更新”中，可以检查 [GitHub 稳定发布](https://github.com/umbrella22/clash-web/releases)、查看发布说明，或点击“立即更新并重启”。此入口更新管理服务和 Web 界面；mihomo 核心继续使用单独的版本管理入口。
+
+检查周期默认为 24 小时，可设置为 1–720 小时的整数，或设置为 0 以关闭定时检查。开启“自动安装更新”后，后台会在定时检查发现新版本时自动安装；浏览器关闭后仍然执行。设置和上次检查结果保存在 `<mihomo.config_dir>/app-update.json`，服务重启后仍有效。
+
+自动安装支持通过 deb 安装并使用 systemd 的 Linux 主机，按当前架构选择 amd64、i386 或 arm64 安装包。AppImage 和源码运行支持检查版本，可通过版本链接下载更新。首次启用此功能，需要先安装包含 `clash-web-update.service` 和对应 polkit 规则的新版 deb 包。
+
+安装任务会从固定 GitHub 仓库重新获取发布信息，在独立 systemd 服务中下载并验证 SHA-256、包名、版本和架构，随后通过 dpkg 保留本机配置并升级。Web 服务会短暂重启，原先运行的 mihomo 会恢复运行；页面在新版本恢复响应后自动刷新。安装包尚未上传或缺少 SHA-256 摘要时不会开始安装。下载或校验失败不会修改当前安装；安装失败会显示错误，系统包管理器报告的失败可能需要人工修复。
+
+查看更新任务日志：
+
+```bash
+journalctl -u clash-web-update.service
+```
 
 ## 离线导入 mihomo 核心
 

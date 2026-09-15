@@ -30,3 +30,4 @@ futures-util.workspace = true
 tokio-stream.workspace = true
 url.workspace = true
 async-stream = "0.3.6"
+tempfile = "3.27.0"
