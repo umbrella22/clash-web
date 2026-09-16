@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/umbrella22/clash-web/compare/clash-web-v0.4.0...clash-web-v0.4.1) (2026-09-16)
+
+### Bug Fixes
+
+* Sort the Overview node dropdown by ascending latency in rule and global modes, with failed and untested nodes last.
+* Refresh latency and ordering immediately after either Overview ping action, and preserve fresh results across stale polling responses.
+
 ## [0.4.0](https://github.com/umbrella22/clash-web/compare/clash-web-v0.3.0...clash-web-v0.4.0) (2026-09-15)
 
 ### Features
