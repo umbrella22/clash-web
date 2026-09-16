@@ -236,7 +236,8 @@ function getSelectedNodeName(group: ProxyGroup | undefined, options: string[]): 
 export function getCurrentProxyTarget(
   proxies: Record<string, ProxyItem>,
   rawMode?: string | null,
-  preferredRuleGroupName?: string | null
+  preferredRuleGroupName?: string | null,
+  delayOverrides: Record<string, number> = {}
 ): CurrentProxyTarget {
   const mode = normalizeClashMode(rawMode);
   const allGroups = createProxyGroups(proxies);
@@ -275,9 +276,9 @@ export function getCurrentProxyTarget(
       selectedGroup?.groupName ?? (mode === "global" ? GLOBAL_PROXY_GROUP_NAME : ""),
     groupLocked: mode === "global",
     nodeName,
-    nodeOptions,
+    nodeOptions: sortProxyNames(nodeOptions, proxies, "delay", delayOverrides),
     node,
-    nodeDelay: getDelay(node),
+    nodeDelay: getDelay(node, delayOverrides[nodeName]),
     isChainSelection: Boolean(chainTarget),
     chainTarget,
   };

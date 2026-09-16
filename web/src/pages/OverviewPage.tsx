@@ -41,6 +41,7 @@ import {
   getDelay,
   getDelayColor,
   normalizeClashMode,
+  reconcileDelayOverrides,
   type ClashMode,
 } from "../features/proxies";
 import {
@@ -48,12 +49,8 @@ import {
   useSelectProxy,
   useTestProxyDelay,
 } from "../hooks/useProxies";
-import {
-  getMihomoInstallStatus,
-  installMihomo,
-  pingGoogleWithProxy,
-} from "../services/api";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { getMihomoInstallStatus, installMihomo } from "../services/api";
+import { useQuery } from "@tanstack/react-query";
 import {
   describeDownloadStatus,
   formatBytes,
@@ -135,7 +132,20 @@ export default function OverviewPage() {
   const { data: preferences } = usePreferences();
   const { proxies, isLoading: proxiesLoading } = useProxyGroups();
   const selectProxy = useSelectProxy();
-  const testProxyDelay = useTestProxyDelay();
+  const [delayOverrides, setDelayOverrides] = useState<Record<string, number>>({});
+  const [seenProxies, setSeenProxies] = useState(proxies);
+  if (seenProxies !== proxies) {
+    setSeenProxies(proxies);
+    // A poll begun before the ping finished must not restore its old latency.
+    if (Object.keys(delayOverrides).length > 0) {
+      setDelayOverrides(reconcileDelayOverrides(delayOverrides, seenProxies, proxies));
+    }
+  }
+  const recordDelay = (name: string, delay: number) => {
+    setDelayOverrides((current) => ({ ...current, [name]: delay > 0 ? delay : -1 }));
+  };
+  const testProxyDelay = useTestProxyDelay(recordDelay);
+  const pingGoogle = useTestProxyDelay(recordDelay);
   const [selectedRuleGroupName, setSelectedRuleGroupName] = useState(readStoredRuleGroup);
   const showToast = useToast();
   const { progress, actionError, actionPending, runDownloadAction } =
@@ -163,26 +173,11 @@ export default function OverviewPage() {
       ? `${formatBytes(activeProgress.downloaded)} / ${formatBytes(activeProgress.total)}`
       : formatBytes(activeProgress?.downloaded);
   const currentProxyTarget = useMemo(
-    () => getCurrentProxyTarget(proxies, currentMode, selectedRuleGroupName),
-    [currentMode, proxies, selectedRuleGroupName]
+    () => getCurrentProxyTarget(proxies, currentMode, selectedRuleGroupName, delayOverrides),
+    [currentMode, proxies, selectedRuleGroupName, delayOverrides]
   );
   const currentProxyNode = currentProxyTarget.node;
   const currentProxyDelayColor = getDelayColor(currentProxyTarget.nodeDelay);
-  const pingGoogle = useMutation({
-    mutationFn: (name: string) => pingGoogleWithProxy(name).then((response) => response.data),
-    onSuccess: (result, name) => {
-      showToast({
-        severity: "success",
-        message: t("proxies.google_ping_success", { name, delay: result.delay }),
-      });
-    },
-    onError: (error, name) => {
-      showToast({
-        severity: "error",
-        message: formatApiError(error, t("proxies.google_ping_failed", { name })),
-      });
-    },
-  });
   const overviewCards = useMemo(
     () => normalizeOverviewCards(preferences?.overview_cards),
     [preferences?.overview_cards]
@@ -271,7 +266,20 @@ export default function OverviewPage() {
   };
   const handleCurrentProxyPing = () => {
     if (!currentProxyTarget.nodeName || currentMode === "direct") return;
-    pingGoogle.mutate(currentProxyTarget.nodeName);
+    pingGoogle.mutate(currentProxyTarget.nodeName, {
+      onSuccess: (response, name) => {
+        showToast({
+          severity: "success",
+          message: t("proxies.google_ping_success", { name, delay: response.data.delay }),
+        });
+      },
+      onError: (error, name) => {
+        showToast({
+          severity: "error",
+          message: formatApiError(error, t("proxies.google_ping_failed", { name })),
+        });
+      },
+    });
   };
   const getCardGridSx = (id: OverviewCardId) => ({
     display: isOverviewCardVisible(overviewCards, id) ? "flex" : "none",
@@ -564,11 +572,13 @@ export default function OverviewPage() {
                   <Tooltip title={t("overview.current_proxy_test")}>
                     <span>
                       <IconButton
+                        aria-label={t("overview.current_proxy_test")}
                         onClick={handleCurrentProxyDelayTest}
                         disabled={
                           !currentProxyTarget.nodeName ||
                           currentMode === "direct" ||
-                          testProxyDelay.isPending
+                          testProxyDelay.isPending ||
+                          pingGoogle.isPending
                         }
                       >
                         {testProxyDelay.isPending ? <CircularProgress size={20} /> : <SpeedIcon />}
@@ -583,7 +593,8 @@ export default function OverviewPage() {
                     disabled={
                       !currentProxyTarget.nodeName ||
                       currentMode === "direct" ||
-                      pingGoogle.isPending
+                      pingGoogle.isPending ||
+                      testProxyDelay.isPending
                     }
                   >
                     {pingGoogle.isPending ? t("proxies.google_pinging") : t("proxies.google_ping")}
@@ -716,7 +727,10 @@ export default function OverviewPage() {
                             }
                             renderValue={(selected) => {
                               const selectedName = String(selected);
-                              const delay = getDelay(proxies[selectedName]);
+                              const delay = getDelay(
+                                proxies[selectedName],
+                                delayOverrides[selectedName]
+                              );
                               const delayColor = getDelayColor(delay);
 
                               return (
@@ -739,7 +753,7 @@ export default function OverviewPage() {
                           >
                             {currentProxyTarget.nodeOptions.map((name) => {
                               const node = proxies[name];
-                              const delay = getDelay(node);
+                              const delay = getDelay(node, delayOverrides[name]);
                               const delayColor = getDelayColor(delay);
 
                               return (

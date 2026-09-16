@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { mihomoApi } from "../services/api";
+import { mihomoApi, pingGoogleWithProxy } from "../services/api";
 import {
   buildProxyGroups,
   type ProxiesResponse,
@@ -93,14 +93,16 @@ export function useSelectProxy() {
   });
 }
 
-export function useTestProxyDelay() {
+export function useTestProxyDelay(onResult?: (name: string, delay: number) => void) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (name: string) =>
-      mihomoApi.get(
-        `/proxies/${encodeURIComponent(name)}/delay?timeout=5000&url=https://www.gstatic.com/generate_204`
-      ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: proxyQueryKey }),
+    mutationFn: (name: string) => pingGoogleWithProxy(name),
+    onSuccess: (response, name) => onResult?.(name, response.data.delay),
+    onError: (_error, name) => onResult?.(name, -1),
+    onSettled: () => {
+      // Show the measured result immediately while mihomo history refreshes.
+      void queryClient.invalidateQueries({ queryKey: proxyQueryKey });
+    },
   });
 }

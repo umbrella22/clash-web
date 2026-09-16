@@ -183,13 +183,13 @@ describe("proxy helpers", () => {
     expect(ruleTarget.groupName).toBe("FINAL");
     expect(ruleTarget.groupLocked).toBe(false);
     expect(ruleTarget.nodeName).toBe("Alpha");
-    expect(ruleTarget.nodeOptions).toEqual(["DIRECT", "Alpha"]);
+    expect(ruleTarget.nodeOptions).toEqual(["Alpha", "DIRECT"]);
 
     const globalTarget = getCurrentProxyTarget(proxies, "global");
     expect(globalTarget.groupName).toBe("GLOBAL");
     expect(globalTarget.groupLocked).toBe(true);
     expect(globalTarget.nodeName).toBe("Bravo");
-    expect(globalTarget.nodeOptions).toEqual(["Alpha", "Bravo", "Offline"]);
+    expect(globalTarget.nodeOptions).toEqual(["Bravo", "Alpha", "Offline"]);
 
     const directTarget = getCurrentProxyTarget(proxies, "direct");
     expect(directTarget.groupName).toBe("DIRECT");
