@@ -39,7 +39,7 @@ clash-web/
 
 需要安装：
 
-- Rust 1.98.1（由 `rust-toolchain.toml` 固定，本地与 CI 使用同一版本）
+- Rust stable（由 `rust-toolchain.toml` 指向 stable，本地与 CI 使用同一版本）
 - Node.js
 - pnpm
 - 可选：本机 mihomo 或通过 Web UI 后续安装 mihomo
